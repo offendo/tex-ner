@@ -195,17 +195,17 @@ if __name__ == "__main__":
         do_train=True,
         do_eval=True,
         do_predict=True,
+        learning_rate=1e-4,
+        num_train_epochs=15,
+        warmup_ratio=0.05,
+        label_smoothing_factor=0.1,
+        optim="adamw_torch",
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
         logging_strategy="steps",
         logging_steps=2,
-        num_train_epochs=15,
-        warmup_ratio=0.05,
         save_strategy="steps",
         save_total_limit=3,
-        label_smoothing_factor=0.1,
-        optim="adamw_torch",
-        use_cpu=True,
     )
     trainer = MultiLabelNERTrainer(model=model, args=args, data_collator=collator, train_dataset=data["train"])
     trainer.train()
