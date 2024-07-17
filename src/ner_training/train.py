@@ -174,13 +174,30 @@ class MultiLabelNER(nn.Module):
         )
 
 
-def collate(examples):
-    pass
-
-
 def load_model(pretrained_model_name: str):
     model = MultiLabelNER(pretrained_model_name, num_labels=len(CLASSES))
     return model.to("mps")
+
+
+def predict(model, data, collator, ctx_len: int = 512, overlap: int = 256, batch_size: int = 8):
+    all_outputs = []
+    for examples in chunked(data, n=batch_size):
+        batch = collator(examples)
+        n_tokens = len(batch["input_ids"])
+        batch_outputs = torch.zeros((batch_size, n_tokens, len(CLASSES)), dtype=torch.long)
+        for idx in range(math.ceil(n_tokens / overlap)):
+            input_ids = batch["input_ids"][idx * overlap : idx * overlap + ctx_len]
+            mask = batch["attention_mask"][idx * overlap : idx * overlap + ctx_len]
+            labels = batch["labels"][idx * overlap : idx * overlap + ctx_len]
+            outputs = model(
+                input_ids=input_ids.to(model.device),
+                labels=labels.to(model.device),
+                attention_mask=mask.to(model.device),
+            )
+            predictions = (outputs.logits >= 0.5).detach().cpu().long()
+            batch_outputs[:, idx * overlap : idx * overlap + ctx_len, :] = predictions
+        all_outputs.append(batch_outputs)
+    return all_outputs
 
 
 if __name__ == "__main__":
