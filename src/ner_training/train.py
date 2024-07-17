@@ -176,7 +176,7 @@ class MultiLabelNER(nn.Module):
 
 def load_model(pretrained_model_name: str):
     model = MultiLabelNER(pretrained_model_name, num_labels=len(CLASSES))
-    return model.to("mps")
+    return model
 
 
 def predict(model, data, collator, ctx_len: int = 512, overlap: int = 256, batch_size: int = 8):
