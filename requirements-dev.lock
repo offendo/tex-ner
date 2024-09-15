@@ -34,6 +34,7 @@ async-lru==2.0.4
     # via jupyterlab
 attrs==23.2.0
     # via aiohttp
+    # via jsonlines
     # via jsonschema
     # via referencing
 babel==2.15.0
@@ -148,6 +149,8 @@ joblib==1.4.2
     # via scikit-learn
 json5==0.9.25
     # via jupyterlab-server
+jsonlines==4.0.0
+    # via ner-training
 jsonpointer==3.0.0
     # via jsonschema
 jsonschema==4.23.0

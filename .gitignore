@@ -9,3 +9,6 @@ wheels/
 # venv
 .venv
 /runs/
+/wandb/
+/data/
+/.old/

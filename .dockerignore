@@ -1,0 +1,5 @@
+data/
+.git/
+.old/
+wandb/
+.venv/

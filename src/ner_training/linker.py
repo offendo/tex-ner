@@ -100,7 +100,6 @@ def make_rule_decorator(rules):
     return inner
 
 
-# Rules
 class AutoLinker:
     rules: dict[str, Callable] = {}
     rule = make_rule_decorator(rules)
