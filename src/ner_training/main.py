@@ -14,12 +14,14 @@ import safetensors
 import torch
 import torch.nn as nn
 import wandb
+from more_itertools import flatten
 from datasets import Dataset, DatasetDict
 from more_itertools import chunked
 from sklearn.preprocessing import MultiLabelBinarizer
 from transformers import (
     AutoConfig,
     AutoModel,
+    AutoModelForTokenClassification,
     AutoTokenizer,
     DataCollatorForTokenClassification,
     PreTrainedTokenizer,
@@ -33,18 +35,33 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 logging.info(f"Running on device: {DEVICE}")
 
 
+def create_multiclass_labels(classes):
+    labels = []
+    for arg in sorted(classes):
+        new = []
+        for label in labels:
+            new.append(f"{label}-{arg}")
+        new.append(arg)
+        labels.extend(new)
+
+    labels = ["O"] + labels
+    return {lab: idx for idx, lab in enumerate(labels)}
+
+
+def convert_label_to_idx(tags: list[str], label2id: dict[str, int]):
+    filtered_tags = sorted([t for t in tags if t in label2id])
+    if len(filtered_tags) == 0:
+        return label2id["O"]
+    return label2id["-".join(filtered_tags)]
+
+
 def _load_file(
     path: str | Path,
-    classes: Iterable[str],
+    label2id: dict[str, int],
     tokenizer: PreTrainedTokenizer,
     context_len: Optional[int] = None,
     strip_bio_prefix: bool = True,
 ):
-    # Train the MLB on nothing because we already know the classes
-    mlb = MultiLabelBinarizer(classes=classes)
-    mlb.fit([])
-    logging.info(f"Initialized multilabel binarizer with classes: {classes}.")
-
     # Load the data
     with open(path, "r") as f:
         data = json.load(f)
@@ -55,22 +72,24 @@ def _load_file(
 
     # Tokenize the data from the file
     tokens = tokenizer(tex)
-    logging.info(f"Tokenized file into {len(tokens)} tokens.")
+    logging.debug(f"Tokenized file into {len(tokens)} tokens.")
 
     tags = [tags for text, tags in iob_tags]
     if strip_bio_prefix:
         tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
+
     special_tokens = set(map(tokenizer.convert_tokens_to_ids, tokenizer.special_tokens_map.values()))
 
     # Add an empty tag for the <s> or </s> tokens
     if tokens.input_ids[0] in special_tokens:
         tags = [[]] + tags
-        logging.info(f"Added an `O` token for the BOS <s> token.")
+        logging.debug(f"Added an `O` token for the BOS <s> token.")
     if tokens.input_ids[-1] in special_tokens:
         tags = tags + [[]]
-        logging.info(f"Added an `O` token for the EOS </s> token.")
+        logging.debug(f"Added an `O` token for the EOS </s> token.")
 
-    tokens["labels"] = mlb.transform(tags)
+    # Convert the tags to idxs
+    tokens["labels"] = [convert_label_to_idx(t, label2id) for t in tags]
 
     # Sanity check to ensure our labels/inputs line up properly
     n_labels = len(tokens["labels"])  # type:ignore
@@ -93,7 +112,7 @@ def _load_file(
 def load_data(
     data_dir: str | Path,
     tokenizer: PreTrainedTokenizer,
-    classes: Iterable[str],
+    label2id: dict[str, int],
     context_len: int,
     strip_bio_prefix: bool = True,
 ):
@@ -105,119 +124,39 @@ def load_data(
 
     train = []
     for js in os.listdir(train_dir):
-        examples = _load_file(train_dir / js, classes=classes, tokenizer=tokenizer, context_len=context_len)
+        examples = _load_file(train_dir / js, label2id=label2id, tokenizer=tokenizer, context_len=context_len)
         train.extend(examples)
     logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
 
     test = []
     for js in os.listdir(test_dir):
-        examples = _load_file(test_dir / js, classes=classes, tokenizer=tokenizer, context_len=context_len)
+        examples = _load_file(test_dir / js, label2id=label2id, tokenizer=tokenizer, context_len=context_len)
         test.extend(examples)
     logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
 
     return DatasetDict({"train": Dataset.from_list(train), "test": Dataset.from_list(test)})
 
 
-class MultiLabelNERTrainer(Trainer):
-    def __init__(self, *args, class_weights: Optional[torch.Tensor] = None, **kwargs):
-        super().__init__(*args, **kwargs)
-        if class_weights is not None:
-            class_weights = class_weights.to(DEVICE)
-            logging.info(f"Using multi-label classification with class weights", class_weights)
-        self.loss_fct = nn.BCEWithLogitsLoss(weight=class_weights)
+def load_model(
+    pretrained_model_name: str | Path, label2id: dict[str, int], debug: bool, checkpoint: str | Path | None = None
+):
+    id2label = {v: k for k, v in label2id.items()}
 
-    def compute_loss(self, model, inputs, return_outputs=False):
-        """
-        How the loss is computed by Trainer. By default, all models return the loss in the first element.
-        Subclass and override for custom behavior.
-        """
-        labels = inputs.pop("labels")
-        outputs = model(**inputs)
-
-        # this accesses predictions for tokens that aren't CLS, PAD, or the 2nd+ subword in a word
-        # and simultaneously flattens the logits or labels
-        flat_outputs = outputs.logits[labels != -100]
-        flat_labels = labels[labels != -100]
-
-        loss = self.loss_fct(flat_outputs, flat_labels.float())
-
-        return (loss, outputs) if return_outputs else loss
-
-
-class MultiLabelNER(nn.Module):
-    def __init__(
-        self, pretrained_model_name, num_labels: int, class_weights: Optional[torch.Tensor] = None, debug: bool = False
-    ):
-        super().__init__()
-        self.num_labels = num_labels
-        if debug:
-            bert_config = AutoConfig.from_pretrained(pretrained_model_name)
-            bert_config.hidden_size = 128
-            bert_config.intermediate_size = 256
-            bert_config.num_hidden_layers = 2
-            bert_config.num_attention_heads = 2
-            self.bert = AutoModel.from_config(bert_config)
-        else:
-            self.bert = AutoModel.from_pretrained(
-                pretrained_model_name,
-                # attn_implementation="flash_attention_2",
-                num_labels=num_labels,
-            )
-        self.loss_fct = nn.BCEWithLogitsLoss(weight=class_weights)
-        self.head = nn.Linear(self.bert.config.hidden_size, num_labels)
-        self.dropout = nn.Dropout(0.1)
-
-    def forward(
-        self,
-        input_ids: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        token_type_ids: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> tuple[torch.Tensor] | TokenClassifierOutput:
-
-        return_dict = return_dict if return_dict is not None else True
-
-        outputs = self.bert(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
+    # Shrink the size if we're debugging stuff
+    if debug:
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id
         )
+        config.hidden_size = 128
+        config.intermediate_size = 256
+        config.num_hidden_layers = 2
+        config.num_attention_heads = 2
+        model = AutoModelForTokenClassification.from_config(config).to(DEVICE)
+    else:
+        model = AutoModelForTokenClassification.from_pretrained(
+            pretrained_model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id
+        ).to(DEVICE)
 
-        sequence_output = outputs[0]
-
-        sequence_output = self.dropout(sequence_output)
-        logits = self.head(sequence_output)
-
-        loss = None
-        if labels is not None:
-            loss = self.loss_fct(logits.view(-1, self.num_labels), labels.view(-1, self.num_labels))
-
-        if not return_dict:
-            output = (logits,) + outputs[2:]
-            return ((loss,) + output) if loss is not None else output
-
-        return TokenClassifierOutput(
-            loss=loss,
-            logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
-
-
-def load_model(pretrained_model_name: str | Path, num_labels: int, debug: bool, checkpoint: str | Path | None = None):
-    model = MultiLabelNER(pretrained_model_name, num_labels=num_labels, debug=debug).to(DEVICE)
     logging.info(f"Loaded MultiLabelNER model with base of {pretrained_model_name}")
     if checkpoint is not None:
         state_dict = {}
@@ -227,45 +166,6 @@ def load_model(pretrained_model_name: str | Path, num_labels: int, debug: bool, 
         model.load_state_dict(state_dict)
         logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
     return model
-
-
-def predict(
-    model: MultiLabelNER,
-    data: Dataset,
-    collator: Callable,
-    ctx_len: int = 512,
-    overlap: int = 512,
-    batch_size: int = 8,
-):
-    all_predictions = []
-    for examples in chunked(data, n=batch_size):
-        batch = collator(examples)
-        batch_size, n_tokens = batch["input_ids"].size()
-
-        # Batch container for (1) logits and (2) number of times we overlap a particular index
-        batch_logits = torch.zeros((batch_size, n_tokens, model.num_labels), dtype=torch.float)
-        batch_counts = torch.zeros((n_tokens,), dtype=torch.long)
-        for idx in range(math.ceil(n_tokens / overlap)):
-            # Run the model
-            input_ids = batch["input_ids"][idx * overlap : idx * overlap + ctx_len]
-            mask = batch["attention_mask"][idx * overlap : idx * overlap + ctx_len]
-            labels = batch["labels"][idx * overlap : idx * overlap + ctx_len]
-            outputs = model(
-                input_ids=input_ids.to(DEVICE),
-                labels=labels.to(DEVICE).float(),
-                attention_mask=mask.to(DEVICE),
-            )
-            logits = outputs.logits.detach().cpu()
-
-            # Add the logits to the previous predictions, and increment the index count
-            batch_logits[:, idx * overlap : idx * overlap + ctx_len, :] += logits
-            batch_counts[idx * overlap : idx * overlap + ctx_len] += 1
-
-        # Every set of logits in the middle got over-counted by overlap, so we have to average them out.
-        batch_logits = batch_logits / batch_counts.view(1, -1, 1)
-        batch_predictions = (torch.sigmoid(batch_logits) >= 0.5).long().numpy()
-        all_predictions.append(batch_predictions)
-    return all_predictions
 
 
 @click.group("cli")
@@ -310,19 +210,21 @@ def train(
     logging_steps: int,
     debug: bool,
 ):
-    classes = tuple(
+    class_names = tuple(
         k
         for k, v in dict(
             definition=definition, theorem=theorem, proof=proof, example=example, name=name, reference=reference
         ).items()
         if v
     )
-    ner_model = load_model(model, num_labels=len(classes), debug=debug)
+    label2id = create_multiclass_labels(class_names)
+    logging.info(f"Label map: {label2id}")
+    ner_model = load_model(model, label2id=label2id, debug=debug)
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     # Data loading
-    data = load_data(data_dir, tokenizer, context_len=context_len, classes=classes)
-    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=[-100] * len(classes))
+    data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id)
+    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=-100)
 
     # Build the trainer
     args = TrainingArguments(
@@ -340,7 +242,7 @@ def train(
         save_total_limit=3,
         use_cpu=DEVICE == "cpu",
     )
-    trainer = MultiLabelNERTrainer(model=ner_model, args=args, data_collator=collator, train_dataset=data["train"])
+    trainer = Trainer(model=ner_model, args=args, data_collator=collator, train_dataset=data["train"])
     trainer.train()
     trainer.save_model(str(Path(output_dir) / "checkpoint-final"))
 
@@ -349,7 +251,7 @@ def train(
 @click.option("--model", type=str)
 @click.option("--checkpoint", default=None, type=click.Path(exists=True))
 @click.option("--data_dir", type=click.Path(exists=True, file_okay=False, writable=True, resolve_path=True))
-@click.option("--output_file", type=click.File("w"))
+@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
 @click.option("--proof", is_flag=True)
@@ -372,39 +274,43 @@ def test(
     context_len: int,
     overlap_len: int,
     data_dir: Path,
-    output_file: Path,
+    output_dir: Path,
     batch_size: int,
     debug: bool,
 ):
-    classes = tuple(
+    class_names = tuple(
         k
         for k, v in dict(
             definition=definition, theorem=theorem, proof=proof, example=example, name=name, reference=reference
         ).items()
         if v
     )
-    ner_model = load_model(model, num_labels=len(classes), debug=debug, checkpoint=checkpoint)
+    label2id = create_multiclass_labels(class_names)
+    id2label = {v: k for k, v in label2id.items()}
+    ner_model = load_model(model, label2id=label2id, debug=debug, checkpoint=checkpoint)
     tokenizer = AutoTokenizer.from_pretrained(model)
-    mlb = MultiLabelBinarizer(classes=classes)
-    mlb.fit([])
 
     # Data loading
-    data = load_data(data_dir, classes=classes, tokenizer=tokenizer, context_len=context_len)
-    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=[-100] * len(classes))
+    data = load_data(data_dir, label2id=label2id, tokenizer=tokenizer, context_len=context_len)
+    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=-100)
 
-    outputs = predict(
-        model=ner_model,
-        data=data["test"],
-        collator=collator,
-        ctx_len=context_len,
-        overlap=overlap_len,
-        batch_size=batch_size,
+    args = TrainingArguments(
+        output_dir=str(output_dir),
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
+        use_cpu=DEVICE == "cpu",
     )
-    preds = [mlb.inverse_transform(example) for batch in outputs for example in batch]  # S, N, T
-    labels = [mlb.inverse_transform(np.array(example)) for example in data["test"]["labels"]]
-    tokens = [tokenizer.convert_ids_to_tokens(i) for i in data["test"]["input_ids"]]
-    test_df = pd.DataFrame(dict(preds=preds, labels=labels, tokens=tokens))
-    test_df.to_json(output_file)
+    trainer = Trainer(model=ner_model, args=args, data_collator=collator, train_dataset=data["train"])
+    logits, labels, metrics = trainer.predict(data["test"])  # type:ignore
+    preds = np.argmax(logits, axis=-1)
+
+    output = {
+        "labels": [[id2label[l] for l in ll if l != -100] for ll in labels],
+        "preds": [[id2label[p] for p, l in zip(pp, ll) if l != -100] for pp, ll in zip(preds, labels)],
+        "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["test"]["input_ids"]],
+    }
+    test_df = pd.DataFrame(output)
+    test_df.to_json(Path(output_dir, "preds.json"))
 
 
 if __name__ == "__main__":

@@ -12,3 +12,5 @@ wheels/
 /wandb/
 /data/
 /.old/
+/checkpoint-final/
+/debug/
