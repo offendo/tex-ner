@@ -7,7 +7,7 @@ authors = [
 ]
 dependencies = [
     "transformers>=4.42.4",
-    "torch>=2.3.1",
+    "torch>=2.4.0",
     "pandas>=2.2.2",
     "datasets>=2.20.0",
     "tokenizers>=0.19.1",

@@ -16,14 +16,19 @@ import torch.nn as nn
 from datasets import Dataset, DatasetDict
 from more_itertools import chunked
 from sklearn.preprocessing import MultiLabelBinarizer
-from transformers import (AutoConfig, AutoModel, AutoTokenizer,
-                          DataCollatorForTokenClassification,
-                          PreTrainedTokenizer, Trainer, TrainingArguments)
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoTokenizer,
+    DataCollatorForTokenClassification,
+    PreTrainedTokenizer,
+    Trainer,
+    TrainingArguments,
+)
 from transformers.modeling_outputs import TokenClassifierOutput
 
 logging.basicConfig(level=logging.INFO)
-# DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-DEVICE = "cpu"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def _load_file(
@@ -214,7 +219,7 @@ def load_model(pretrained_model_name: str | Path, num_labels: int, debug: bool, 
     logging.info(f"Loaded MultiLabelNER model with base of {pretrained_model_name}")
     if checkpoint is not None:
         state_dict = {}
-        with safetensors.safe_open(Path(checkpoint, "model.safetensors"), framework='pt', device=DEVICE) as file:
+        with safetensors.safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:
             for k in file.keys():
                 state_dict[k] = file.get_tensor(k)
         model.load_state_dict(state_dict)
@@ -393,8 +398,8 @@ def test(
         batch_size=batch_size,
     )
     preds = [mlb.inverse_transform(example) for batch in outputs for example in batch]  # S, N, T
-    labels = [mlb.inverse_transform(np.array(example)) for example in data['test']['labels']]
-    tokens = [tokenizer.convert_ids_to_tokens(i) for i in data['test']['input_ids']]
+    labels = [mlb.inverse_transform(np.array(example)) for example in data["test"]["labels"]]
+    tokens = [tokenizer.convert_ids_to_tokens(i) for i in data["test"]["input_ids"]]
     test_df = pd.DataFrame(dict(preds=preds, labels=labels, tokens=tokens))
     test_df.to_json(output_file)
 

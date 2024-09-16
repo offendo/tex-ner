@@ -4,11 +4,14 @@ ENV PIP_NO_CACHE_DIR=1
 
 # Install curl/git
 RUN apt update -y \
-    && apt install -y curl git \
-    && chmod -R a+w $ELAN_HOME;
+    && apt install -y curl git
 
 # Install Python stuff
 WORKDIR /app
-COPY pyproject.toml requirements.lock requirements-dev.lock .
+COPY pyproject.toml README.md requirements.lock requirements-dev.lock .
+RUN pip install -U uv \
+    && uv pip install --system transformers pandas datasets tokenizers evaluate more-itertools scikit-learn accelerate wandb click icecream jsonlines
 
-RUN pip install -r requirements.lock
+COPY src/ src/
+
+CMD ["python", "src/ner_training/main.py", "train", "--model", "roberta-base-cased", "--definition", "--theorem", "--proof", "--example", "--data_dir", "/volume/data/ner/", "--output_dir", "runs/"]
