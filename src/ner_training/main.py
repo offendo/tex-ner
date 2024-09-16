@@ -30,6 +30,7 @@ from transformers.modeling_outputs import TokenClassifierOutput
 
 logging.basicConfig(level=logging.INFO)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+logging.info(f"Running on device: {DEVICE}")
 
 
 def _load_file(
