@@ -22,9 +22,7 @@ spec:
       containers:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
-          command: ["python"]
-          args:
-            ["src/ner_training/main.py", "train", "--model", "FacebookAI/roberta-base", "--definition", "--theorem", "--proof", "--example", "--data_dir", "/volume/ner/", "--output_dir", "/volume/ner/outputs/"]
+          command: ["bash", "run.sh"]
           workingDir: /app
           volumeMounts:
             - name: nilay-data-volume-rwm-central

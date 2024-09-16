@@ -12,6 +12,6 @@ COPY pyproject.toml README.md requirements.lock requirements-dev.lock .
 RUN pip install -U uv \
     && uv pip install --system transformers pandas datasets tokenizers evaluate more-itertools scikit-learn accelerate wandb click icecream jsonlines
 
-COPY src/ src/
+COPY . .
 
 CMD ["python", "src/ner_training/main.py", "train", "--model", "roberta-base-cased", "--definition", "--theorem", "--proof", "--example", "--data_dir", "/volume/data/ner/", "--output_dir", "runs/"]
