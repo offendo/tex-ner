@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nilay-pdfocr
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-A100-SXM4-80GB
+                      - NVIDIA-A100-80GB-PCIe
+                      - NVIDIA-A100-80GB-PCIe
+                      - NVIDIA-GeForce-RTX-3090
+      imagePullSecrets:
+        - name: nilay-ghcr-key
+      containers:
+        - name: trainer
+          image: ghcr.io/offendo/ner:latest
+          command: ["python"]
+          args:
+            ["src/ner_training/main.py", "train", "--model", "roberta-base-cased", "--definition", "--theorem", "--proof", "--example", "--data_dir", "/volume/data/ner/", "--output_dir", "/volume/data/ner/outputs/"]
+          workingDir: /app
+          volumeMounts:
+            - name: nilay-data-volume-rwm-central
+              mountPath: /volume
+            - name: api-tokens
+              mountPath: /etc/api-tokens
+          resources:
+            limits:
+              memory: 64Gi
+              cpu: 2
+              nvidia.com/gpu: 2
+              ephemeral-storage: 100Gi
+            requests:
+              memory: 64Gi
+              cpu: 2
+              nvidia.com/gpu: 2
+              ephemeral-storage: 100Gi
+      initContainers:
+        - name: chmod
+          image: alpine:latest
+          command: ["chmod", "-R", "a+rw", "/volume"]
+          resources:
+            limits:
+              memory: 4Gi
+              cpu: 1
+            requests:
+              memory: 4Gi
+              cpu: 1
+          volumeMounts:
+            - name: nilay-data-volume-rwm-central
+              mountPath: /volume
+      securityContext:
+        fsGroup: 101
+      volumes:
+        - name: nilay-data-volume-rwm-central
+          persistentVolumeClaim:
+            claimName: nilay-data-volume-rwm-central
+        - name: api-tokens
+          secret:
+            defaultMode: 0400
+            secretName: nilay-api-tokens
+      restartPolicy: Never
+  backoffLimit: 0
