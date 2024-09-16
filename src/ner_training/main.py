@@ -342,6 +342,7 @@ def train(
     )
     trainer = MultiLabelNERTrainer(model=ner_model, args=args, data_collator=collator, train_dataset=data["train"])
     trainer.train()
+    trainer.save_model(str(output_dir / "checkpoint-final"))
 
 
 @click.command()

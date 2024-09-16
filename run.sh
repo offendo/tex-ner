@@ -15,7 +15,7 @@ python src/ner_training/main.py train \
 # Run testing
 python src/ner_training/main.py test \
     --model FacebookAI/roberta-base \
-    --checkpoint /volume/ner/outputs/checkpoint-best \
+    --checkpoint /volume/ner/outputs/checkpoint-last \
     --definition --theorem --proof --example \
     --data_dir /volume/ner \
     --output_file /volume/ner/outputs/preds.json
