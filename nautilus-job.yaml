@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-pdfocr
+  name: nilay-ner
 spec:
   template:
     spec:
@@ -24,7 +24,7 @@ spec:
           image: ghcr.io/offendo/ner:latest
           command: ["python"]
           args:
-            ["src/ner_training/main.py", "train", "--model", "roberta-base-cased", "--definition", "--theorem", "--proof", "--example", "--data_dir", "/volume/data/ner/", "--output_dir", "/volume/data/ner/outputs/"]
+            ["src/ner_training/main.py", "train", "--model", "FacebookAI/roberta-base", "--definition", "--theorem", "--proof", "--example", "--data_dir", "/volume/ner/", "--output_dir", "/volume/ner/outputs/"]
           workingDir: /app
           volumeMounts:
             - name: nilay-data-volume-rwm-central

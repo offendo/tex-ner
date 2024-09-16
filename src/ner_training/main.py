@@ -13,6 +13,7 @@ import pandas as pd
 import safetensors
 import torch
 import torch.nn as nn
+import wandb
 from datasets import Dataset, DatasetDict
 from more_itertools import chunked
 from sklearn.preprocessing import MultiLabelBinarizer
