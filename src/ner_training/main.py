@@ -338,7 +338,7 @@ def train(
         logging_steps=logging_steps,
         save_strategy="epoch",
         save_total_limit=3,
-        use_cpu=True,
+        use_cpu=DEVICE == "cpu",
     )
     trainer = MultiLabelNERTrainer(model=ner_model, args=args, data_collator=collator, train_dataset=data["train"])
     trainer.train()
