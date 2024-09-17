@@ -245,6 +245,7 @@ numpy==1.26.4
     # via pyarrow
     # via scikit-learn
     # via scipy
+    # via seqeval
     # via torchcrf
     # via transformers
 overrides==7.7.0
@@ -359,12 +360,15 @@ safetensors==0.4.3
     # via transformers
 scikit-learn==1.5.1
     # via ner-training
+    # via seqeval
 scipy==1.14.0
     # via scikit-learn
 send2trash==1.8.3
     # via jupyter-server
 sentry-sdk==2.13.0
     # via wandb
+seqeval==1.2.2
+    # via ner-training
 setproctitle==1.3.3
     # via wandb
 setuptools==70.3.0
