@@ -671,8 +671,8 @@ def tune(
         return {
             "learning_rate": ray.tune.loguniform(1e-6, 1e-3),
             "per_device_train_batch_size": ray.tune.choice([4, 8, 16, 32]),
-            "warmup_ratio": ray.tune.loguniform(0.0, 0.1),
-            "weight_decay": ray.tune.loguniform(0.0, 1e-3),
+            "warmup_ratio": ray.tune.uniform(0.0, 0.1),
+            "weight_decay": ray.tune.loguniform(1e-6, 1e-3),
             "lr_scheduler_type": ray.tune.choice(["linear", "cosine", "inverse_sqrt"]),
             "label_smoothing_factor": ray.tune.uniform(0.0, 0.1),
         }
@@ -693,7 +693,7 @@ def tune(
         logging_strategy="steps",
         logging_steps=logging_steps,
         eval_strategy="steps",
-        eval_steps=100,
+        eval_steps=50,
         metric_for_best_model="f1",
         use_cpu=DEVICE == "cpu",
     )
