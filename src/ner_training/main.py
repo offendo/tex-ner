@@ -14,6 +14,8 @@ import safetensors
 import torch
 import torch.nn as nn
 import wandb
+import evaluate
+from sklearn.metrics import precision_recall_fscore_support
 from more_itertools import flatten
 from datasets import Dataset, DatasetDict
 from more_itertools import chunked
@@ -24,11 +26,19 @@ from transformers import (
     AutoModelForTokenClassification,
     AutoTokenizer,
     DataCollatorForTokenClassification,
+    EvalPrediction,
     PreTrainedTokenizer,
     Trainer,
     TrainingArguments,
 )
 from transformers.modeling_outputs import TokenClassifierOutput
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+f1_metric = evaluate.load("f1")
+precision_metric = evaluate.load("precision")
+recall_metric = evaluate.load("recall")
+metric = evaluate.combine([f1_metric, precision_metric, recall_metric])
 
 logging.basicConfig(level=logging.INFO)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -36,10 +46,15 @@ logging.info(f"Running on device: {DEVICE}")
 
 
 class BertWithCRF(nn.Module):
-    def __init__(self, pretrained_model_name: str, num_labels: int, context_len: int = 512):
+    def __init__(
+        self, pretrained_model_name: str, num_labels: int, context_len: int = 512
+    ):
         super().__init__()
         from torchcrf import CRF
-        self.bert = AutoModelForTokenClassification.from_pretrained(pretrained_model_name, num_labels=num_labels)
+
+        self.bert = AutoModelForTokenClassification.from_pretrained(
+            pretrained_model_name, num_labels=num_labels
+        )
         self.num_labels = num_labels
         self.crf = CRF(num_labels, batch_first=True)
         self.ctx = context_len
@@ -47,9 +62,11 @@ class BertWithCRF(nn.Module):
     def decode(self, batch):
         # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
         B, N = batch["input_ids"].shape
-        batch_outputs = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=self.bert.device)
-        batch_inputs = batch['input_ids']
-        batch_mask = batch['attention_mask']
+        batch_outputs = torch.zeros(
+            (B, N, self.num_labels), dtype=torch.float32, device=self.bert.device
+        )
+        batch_inputs = batch["input_ids"]
+        batch_mask = batch["attention_mask"]
         for idx in range(math.ceil(N / 512)):
             input_ids = batch_inputs[:, idx * self.ctx : idx * self.ctx + self.ctx]
             mask = batch_mask[:, idx * self.ctx : idx * self.ctx + self.ctx]
@@ -57,7 +74,9 @@ class BertWithCRF(nn.Module):
                 input_ids=input_ids.to(model.bert.device),
                 attention_mask=mask.to(model.bert.device),
             )
-            batch_outputs[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
+            batch_outputs[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = (
+                outputs.logits
+            )
         crf_out = self.crf.decode(batch_outputs, mask=batch_mask.bool())
         return crf_out
 
@@ -74,19 +93,26 @@ class BertWithCRF(nn.Module):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> tuple[torch.Tensor] | TokenClassifierOutput:
-
         return_dict = True
         # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
         B, N = input_ids.shape
-        logits = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=input_ids.device)
+        logits = torch.zeros(
+            (B, N, self.num_labels), dtype=torch.float32, device=input_ids.device
+        )
         for idx in range(math.ceil(N / 512)):
             outputs = self.bert(
                 input_ids=input_ids[:, idx * self.ctx : idx * self.ctx + self.ctx],
-                attention_mask=attention_mask[:, idx * self.ctx : idx * self.ctx + self.ctx],
-                labels=labels[:, idx * self.ctx : idx * self.ctx + self.ctx].contiguous(),
+                attention_mask=attention_mask[
+                    :, idx * self.ctx : idx * self.ctx + self.ctx
+                ],
+                labels=labels[
+                    :, idx * self.ctx : idx * self.ctx + self.ctx
+                ].contiguous(),
             )
             logits[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
-        crf_out = self.crf(logits, labels, mask=attention_mask.bool(), reduction='token_mean')
+        crf_out = self.crf(
+            logits, labels, mask=attention_mask.bool(), reduction="token_mean"
+        )
 
         loss = None
         if labels is not None:
@@ -94,11 +120,10 @@ class BertWithCRF(nn.Module):
 
         return TokenClassifierOutput(
             loss=loss,
-            logits=logits, # type:ignore
+            logits=logits,  # type:ignore
             hidden_states=None,
             attentions=None,
         )
-
 
 
 def create_multiclass_labels(classes):
@@ -131,7 +156,7 @@ def _load_file(
     # Load the data
     with open(path, "r") as f:
         data = json.load(f)
-    logging.info(f"Loaded file from {path}.")
+    logging.debug(f"Loaded file from {path}.")
 
     iob_tags = data["iob_tags"]  # list of [text, [tags]]
     tex = data["tex"]  # tex string
@@ -144,7 +169,9 @@ def _load_file(
     if strip_bio_prefix:
         tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
 
-    special_tokens = set(map(tokenizer.convert_tokens_to_ids, tokenizer.special_tokens_map.values()))
+    special_tokens = set(
+        map(tokenizer.convert_tokens_to_ids, tokenizer.special_tokens_map.values())
+    )
 
     # Add an empty tag for the <s> or </s> tokens
     if tokens.input_ids[0] in special_tokens:
@@ -160,7 +187,9 @@ def _load_file(
     # Sanity check to ensure our labels/inputs line up properly
     n_labels = len(tokens["labels"])  # type:ignore
     n_tokens = len(tokens["input_ids"])  # type:ignore
-    assert n_labels == n_tokens, f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
+    assert (
+        n_labels == n_tokens
+    ), f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
 
     # Split it up into context-window sized chunks (for training)
     if context_len is not None:
@@ -169,7 +198,9 @@ def _load_file(
             labels = tokens["labels"][idx * context_len : (idx + 1) * context_len]
             input_ids = tokens["input_ids"][idx * context_len : (idx + 1) * context_len]
             mask = tokens["attention_mask"][idx * context_len : (idx + 1) * context_len]
-            sub_examples.append({"labels": labels, "input_ids": input_ids, "attention_mask": mask})
+            sub_examples.append(
+                {"labels": labels, "input_ids": input_ids, "attention_mask": mask}
+            )
         return sub_examples
 
     return [tokens]
@@ -184,34 +215,75 @@ def load_data(
 ):
     train_dir = Path(data_dir, "train")
     test_dir = Path(data_dir, "test")
+    val_dir = Path(data_dir, "val")
 
     assert train_dir.exists(), f"Expected {train_dir} to exist."
     assert test_dir.exists(), f"Expected {test_dir} to exist."
+    assert val_dir.exists(), f"Expected {val_dir} to exist."
 
     train = []
     for js in os.listdir(train_dir):
-        examples = _load_file(train_dir / js, label2id=label2id, tokenizer=tokenizer, context_len=context_len)
+        examples = _load_file(
+            train_dir / js,
+            label2id=label2id,
+            tokenizer=tokenizer,
+            context_len=context_len,
+        )
         train.extend(examples)
-    logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
+    logging.info(
+        f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files)."
+    )
+
+    val = []
+    for js in os.listdir(val_dir):
+        examples = _load_file(
+            val_dir / js,
+            label2id=label2id,
+            tokenizer=tokenizer,
+            context_len=context_len,
+        )
+        val.extend(examples)
+    logging.info(
+        f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files)."
+    )
 
     test = []
     for js in os.listdir(test_dir):
-        examples = _load_file(test_dir / js, label2id=label2id, tokenizer=tokenizer, context_len=context_len)
+        examples = _load_file(
+            test_dir / js,
+            label2id=label2id,
+            tokenizer=tokenizer,
+            context_len=context_len,
+        )
         test.extend(examples)
-    logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
+    logging.info(
+        f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files)."
+    )
 
-    return DatasetDict({"train": Dataset.from_list(train), "test": Dataset.from_list(test)})
+    return DatasetDict(
+        {
+            "train": Dataset.from_list(train),
+            "val": Dataset.from_list(val),
+            "test": Dataset.from_list(test),
+        }
+    )
 
 
 def load_model(
-    pretrained_model_name: str | Path, label2id: dict[str, int], debug: bool, checkpoint: str | Path | None = None
+    pretrained_model_name: str | Path,
+    label2id: dict[str, int],
+    debug: bool,
+    checkpoint: str | Path | None = None,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
     # Shrink the size if we're debugging stuff
     if debug:
         config = AutoConfig.from_pretrained(
-            pretrained_model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id
+            pretrained_model_name,
+            num_labels=len(label2id),
+            id2label=id2label,
+            label2id=label2id,
         )
         config.hidden_size = 128
         config.intermediate_size = 256
@@ -220,18 +292,35 @@ def load_model(
         model = AutoModelForTokenClassification.from_config(config).to(DEVICE)
     else:
         model = AutoModelForTokenClassification.from_pretrained(
-            pretrained_model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id
+            pretrained_model_name,
+            num_labels=len(label2id),
+            id2label=id2label,
+            label2id=label2id,
         ).to(DEVICE)
 
     logging.info(f"Loaded MultiLabelNER model with base of {pretrained_model_name}")
     if checkpoint is not None:
         state_dict = {}
-        with safetensors.safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:
+        with safetensors.safe_open(
+            Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE
+        ) as file:
             for k in file.keys():
                 state_dict[k] = file.get_tensor(k)
         model.load_state_dict(state_dict)
         logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
     return model
+
+
+def compute_metrics(eval_out: EvalPrediction):
+    logits, labels = eval_out
+    preds = np.argmax(logits, axis=-1)
+    metrics = metric.compute(
+        references=labels.ravel(),
+        predictions=preds.ravel(),
+        labels=list(range(1, np.max(labels))),
+        average="weighted",
+    )
+    return metrics
 
 
 @click.group("cli")
@@ -241,8 +330,13 @@ def cli():
 
 @click.command()
 @click.option("--model", type=str)
-@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
-@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
+@click.option(
+    "--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True)
+)
+@click.option(
+    "--output_dir",
+    type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True),
+)
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
 @click.option("--proof", is_flag=True)
@@ -279,7 +373,12 @@ def train(
     class_names = tuple(
         k
         for k, v in dict(
-            definition=definition, theorem=theorem, proof=proof, example=example, name=name, reference=reference
+            definition=definition,
+            theorem=theorem,
+            proof=proof,
+            example=example,
+            name=name,
+            reference=reference,
         ).items()
         if v
     )
@@ -290,7 +389,9 @@ def train(
 
     # Data loading
     data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id)
-    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=-100)
+    collator = DataCollatorForTokenClassification(
+        tokenizer, padding=True, label_pad_token_id=-100
+    )
 
     # Build the trainer
     args = TrainingArguments(
@@ -304,11 +405,20 @@ def train(
         per_device_eval_batch_size=batch_size,
         logging_strategy="steps",
         logging_steps=logging_steps,
+        eval_strategy="steps",
+        eval_steps=50,
         save_strategy="epoch",
         save_total_limit=3,
         use_cpu=DEVICE == "cpu",
     )
-    trainer = Trainer(model=ner_model, args=args, data_collator=collator, train_dataset=data["train"])
+    trainer = Trainer(
+        model=ner_model,
+        args=args,
+        data_collator=collator,
+        train_dataset=data["train"],
+        eval_dataset=data["val"],
+        compute_metrics=compute_metrics,
+    )
     trainer.train()
     trainer.save_model(str(Path(output_dir) / "checkpoint-final"))
 
@@ -316,8 +426,14 @@ def train(
 @click.command()
 @click.option("--model", type=str)
 @click.option("--checkpoint", default=None, type=click.Path(exists=True))
-@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, writable=True, resolve_path=True))
-@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
+@click.option(
+    "--data_dir",
+    type=click.Path(exists=True, file_okay=False, writable=True, resolve_path=True),
+)
+@click.option(
+    "--output_dir",
+    type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True),
+)
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
 @click.option("--proof", is_flag=True)
@@ -347,7 +463,12 @@ def test(
     class_names = tuple(
         k
         for k, v in dict(
-            definition=definition, theorem=theorem, proof=proof, example=example, name=name, reference=reference
+            definition=definition,
+            theorem=theorem,
+            proof=proof,
+            example=example,
+            name=name,
+            reference=reference,
         ).items()
         if v
     )
@@ -357,8 +478,12 @@ def test(
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     # Data loading
-    data = load_data(data_dir, label2id=label2id, tokenizer=tokenizer, context_len=context_len)
-    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=-100)
+    data = load_data(
+        data_dir, label2id=label2id, tokenizer=tokenizer, context_len=context_len
+    )
+    collator = DataCollatorForTokenClassification(
+        tokenizer, padding=True, label_pad_token_id=-100
+    )
 
     args = TrainingArguments(
         output_dir=str(output_dir),
@@ -366,14 +491,26 @@ def test(
         per_device_eval_batch_size=batch_size,
         use_cpu=DEVICE == "cpu",
     )
-    trainer = Trainer(model=ner_model, args=args, data_collator=collator, train_dataset=data["train"])
+    trainer = Trainer(
+        model=ner_model,
+        args=args,
+        data_collator=collator,
+        train_dataset=data["train"],
+        compute_metrics=compute_metrics,
+    )
     logits, labels, metrics = trainer.predict(data["test"])  # type:ignore
     preds = np.argmax(logits, axis=-1)
 
     output = {
         "labels": [[id2label[l] for l in ll if l != -100] for ll in labels],
-        "preds": [[id2label[p] for p, l in zip(pp, ll) if l != -100] for pp, ll in zip(preds, labels)],
-        "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["test"]["input_ids"]],
+        "preds": [
+            [id2label[p] for p, l in zip(pp, ll) if l != -100]
+            for pp, ll in zip(preds, labels)
+        ],
+        "tokens": [
+            [tokenizer.convert_ids_to_tokens(i) for i in item]
+            for item in data["test"]["input_ids"]
+        ],
     }
     test_df = pd.DataFrame(output)
     test_df.to_json(Path(output_dir, "preds.json"))

@@ -123,7 +123,9 @@ class AutoLinker:
         for guess in annotations:
             if guess.tag not in {"definition", "theorem", "example"}:
                 continue
-            elif target == None or (target.end - target.start) > (guess.end - guess.start):
+            elif target == None or (target.end - target.start) > (
+                guess.end - guess.start
+            ):
                 target = guess
 
         # If we found one (or if we found multiple, the shortest one), then link it
@@ -158,7 +160,10 @@ class AutoLinker:
     @rule("link_proof_to_theorem")
     @staticmethod
     def link_proof_to_theorem(proof: Annotation, annotations: list[Annotation]):
-        candidates = filter(lambda anno: anno.tag == "theorem" and (anno.end - proof.start) <= 250, annotations)
+        candidates = filter(
+            lambda anno: anno.tag == "theorem" and (anno.end - proof.start) <= 250,
+            annotations,
+        )
         candidates = sorted(candidates, key=lambda x: -x.start)
         if len(candidates) > 0:
             toggle_link(proof, candidates[0])
