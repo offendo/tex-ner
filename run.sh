@@ -18,4 +18,4 @@ python src/ner_training/main.py test \
     --checkpoint /volume/ner/outputs/checkpoint-final \
     --definition --theorem --proof --example --name \
     --data_dir /volume/ner \
-    --output_file /volume/ner/outputs/preds.json
+    --output_dir /volume/ner/outputs/
