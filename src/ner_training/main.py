@@ -35,6 +35,72 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 logging.info(f"Running on device: {DEVICE}")
 
 
+class BertWithCRF(nn.Module):
+    def __init__(self, pretrained_model_name: str, num_labels: int, context_len: int = 512):
+        super().__init__()
+        from torchcrf import CRF
+        self.bert = AutoModelForTokenClassification.from_pretrained(pretrained_model_name, num_labels=num_labels)
+        self.num_labels = num_labels
+        self.crf = CRF(num_labels, batch_first=True)
+        self.ctx = context_len
+
+    def decode(self, batch):
+        # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
+        B, N = batch["input_ids"].shape
+        batch_outputs = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=self.bert.device)
+        batch_inputs = batch['input_ids']
+        batch_mask = batch['attention_mask']
+        for idx in range(math.ceil(N / 512)):
+            input_ids = batch_inputs[:, idx * self.ctx : idx * self.ctx + self.ctx]
+            mask = batch_mask[:, idx * self.ctx : idx * self.ctx + self.ctx]
+            outputs = self.bert(
+                input_ids=input_ids.to(model.bert.device),
+                attention_mask=mask.to(model.bert.device),
+            )
+            batch_outputs[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
+        crf_out = self.crf.decode(batch_outputs, mask=batch_mask.bool())
+        return crf_out
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> tuple[torch.Tensor] | TokenClassifierOutput:
+
+        return_dict = True
+        # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
+        B, N = input_ids.shape
+        logits = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=input_ids.device)
+        for idx in range(math.ceil(N / 512)):
+            outputs = self.bert(
+                input_ids=input_ids[:, idx * self.ctx : idx * self.ctx + self.ctx],
+                attention_mask=attention_mask[:, idx * self.ctx : idx * self.ctx + self.ctx],
+                labels=labels[:, idx * self.ctx : idx * self.ctx + self.ctx].contiguous(),
+            )
+            logits[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
+        crf_out = self.crf(logits, labels, mask=attention_mask.bool(), reduction='token_mean')
+
+        loss = None
+        if labels is not None:
+            loss = -crf_out
+
+        return TokenClassifierOutput(
+            loss=loss,
+            logits=logits, # type:ignore
+            hidden_states=None,
+            attentions=None,
+        )
+
+
+
 def create_multiclass_labels(classes):
     labels = []
     for arg in sorted(classes):

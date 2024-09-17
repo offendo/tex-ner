@@ -100,6 +100,7 @@ numpy==1.26.4
     # via pyarrow
     # via scikit-learn
     # via scipy
+    # via torchcrf
     # via transformers
 packaging==24.1
     # via accelerate
@@ -171,6 +172,9 @@ tokenizers==0.19.1
     # via transformers
 torch==2.4.1
     # via accelerate
+    # via ner-training
+    # via torchcrf
+torchcrf==1.1.0
     # via ner-training
 tqdm==4.66.4
     # via datasets
