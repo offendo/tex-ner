@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import wandb
 import evaluate
-import tune
+import ray
 from tqdm import tqdm
 from torchcrf import CRF
 from safetensors import safe_open
@@ -637,7 +637,7 @@ def test(
 @click.option("--steps", default=500)
 @click.option("--logging_steps", default=10)
 @click.option("--debug", is_flag=True)
-def raytune(
+def tune(
     model: str,
     crf: bool,
     definition: bool,
@@ -669,16 +669,18 @@ def raytune(
 
     def raytune_hp_space(trial):
         return {
-            "learning_rate": tune.loguniform(1e-6, 1e-3),
-            "per_device_train_batch_size": tune.choice([4, 8, 16, 32]),
-            "warmup_ratio": tune.loguniform(0.0, 0.1),
-            "weight_decay": tune.loguniform(0.0, 1e-3),
-            "lr_scheduler_type": tune.choice(["linear", "cosine", "inverse_sqrt"]),
-            "label_smoothing_factor": tune.uniform(0.0, 0.1),
+            "learning_rate": ray.tune.loguniform(1e-6, 1e-3),
+            "per_device_train_batch_size": ray.tune.choice([4, 8, 16, 32]),
+            "warmup_ratio": ray.tune.loguniform(0.0, 0.1),
+            "weight_decay": ray.tune.loguniform(0.0, 1e-3),
+            "lr_scheduler_type": ray.tune.choice(["linear", "cosine", "inverse_sqrt"]),
+            "label_smoothing_factor": ray.tune.uniform(0.0, 0.1),
         }
 
-    def model_init(trial):
-        model = load_model(model, label2id=label2id, debug=debug, crf=crf, context_len=context_len)
+    def make_model_init(*args, **kwargs):
+        def model_init(trial):
+            return load_model(*args, **kwargs)
+        return model_init
 
     # Data loading
     tokenizer = AutoTokenizer.from_pretrained(model)
@@ -702,7 +704,7 @@ def raytune(
         eval_dataset=data["val"],
         compute_metrics=compute_metrics,
         tokenizer=tokenizer,
-        model_init=model_init,
+        model_init=make_model_init(model, label2id=label2id, debug=debug, crf=crf, context_len=context_len),
         data_collator=collator,
     )
     best_trial = trainer.hyperparameter_search(
@@ -725,5 +727,5 @@ def raytune(
 if __name__ == "__main__":
     cli.add_command(train)
     cli.add_command(test)
-    cli.add_command(raytune)
+    cli.add_command(tune)
     cli()

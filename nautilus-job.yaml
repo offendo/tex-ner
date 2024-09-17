@@ -22,9 +22,11 @@ spec:
       containers:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
-          command: ["bash", "run.sh"]
-          workingDir: /app
+          command: ["bash", "tune.sh"]
+          workingDir: /app/tex-ner
           volumeMounts:
+            - name: git-repo
+              mountPath: /app
             - name: nilay-data-volume-rwm-central
               mountPath: /volume
             - name: api-tokens
@@ -41,6 +43,25 @@ spec:
               nvidia.com/gpu: 1
               ephemeral-storage: 100Gi
       initContainers:
+        - name: git-sync
+          image: registry.k8s.io/git-sync/git-sync:v4.1.0
+          args:
+            - "--repo=git@github.com:offendo/tex-ner"
+            - "--depth=1"
+            - "--one-time"
+            - "--root=/git"
+          resources:
+            limits:
+              memory: 4Gi
+              cpu: 1
+            requests:
+              memory: 4Gi
+              cpu: 1
+          volumeMounts:
+            - name: git-repo
+              mountPath: /git
+            - name: git-secret
+              mountPath: /etc/git-secret
         - name: chmod
           image: alpine:latest
           command: ["chmod", "-R", "a+rw", "/volume"]
@@ -57,6 +78,12 @@ spec:
       securityContext:
         fsGroup: 101
       volumes:
+        - name: git-repo
+          emptyDir: {}
+        - name: git-secret
+          secret:
+            defaultMode: 0400
+            secretName: nilay-git-creds
         - name: nilay-data-volume-rwm-central
           persistentVolumeClaim:
             claimName: nilay-data-volume-rwm-central

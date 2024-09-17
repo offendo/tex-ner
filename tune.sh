@@ -12,8 +12,9 @@ mkdir -p "/volume/ner/outputs/$RUN_NAME"
 
 # Run training
 export WANDB_RUN_NAME="$RUN_NAME"
-python src/ner_training/main.py raytune \
+python src/ner_training/main.py tune \
     --model FacebookAI/roberta-base \
     --definition --theorem --proof --example \
+    --steps 1200 \
     --data_dir /volume/ner/ \
     --output_dir /volume/ner/outputs/$RUN_NAME \
