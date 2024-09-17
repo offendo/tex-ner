@@ -246,7 +246,6 @@ numpy==1.26.4
     # via scikit-learn
     # via scipy
     # via seqeval
-    # via torchcrf
     # via transformers
 overrides==7.7.0
     # via jupyter-server
@@ -314,6 +313,8 @@ python-dateutil==2.9.0.post0
     # via pandas
 python-json-logger==2.0.7
     # via jupyter-events
+pytorch-crf==0.7.2
+    # via ner-training
 pytz==2024.1
     # via pandas
 pyyaml==6.0.1
@@ -404,9 +405,6 @@ tokenizers==0.19.1
     # via transformers
 torch==2.4.1
     # via accelerate
-    # via ner-training
-    # via torchcrf
-torchcrf==1.1.0
     # via ner-training
 tornado==6.4.1
     # via ipykernel

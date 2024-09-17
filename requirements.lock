@@ -101,7 +101,6 @@ numpy==1.26.4
     # via scikit-learn
     # via scipy
     # via seqeval
-    # via torchcrf
     # via transformers
 packaging==24.1
     # via accelerate
@@ -128,6 +127,8 @@ pygments==2.18.0
     # via icecream
 python-dateutil==2.9.0.post0
     # via pandas
+pytorch-crf==0.7.2
+    # via ner-training
 pytz==2024.1
     # via pandas
 pyyaml==6.0.1
@@ -176,9 +177,6 @@ tokenizers==0.19.1
     # via transformers
 torch==2.4.1
     # via accelerate
-    # via ner-training
-    # via torchcrf
-torchcrf==1.1.0
     # via ner-training
 tqdm==4.66.4
     # via datasets

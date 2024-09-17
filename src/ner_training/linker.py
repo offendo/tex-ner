@@ -123,9 +123,7 @@ class AutoLinker:
         for guess in annotations:
             if guess.tag not in {"definition", "theorem", "example"}:
                 continue
-            elif target == None or (target.end - target.start) > (
-                guess.end - guess.start
-            ):
+            elif target == None or (target.end - target.start) > (guess.end - guess.start):
                 target = guess
 
         # If we found one (or if we found multiple, the shortest one), then link it

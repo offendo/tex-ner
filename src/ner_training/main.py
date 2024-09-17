@@ -10,11 +10,14 @@ from typing import Callable, Iterable, Optional
 import click
 import numpy as np
 import pandas as pd
-import safetensors
 import torch
 import torch.nn as nn
 import wandb
 import evaluate
+from tqdm import tqdm
+from torchcrf import CRF
+from safetensors import safe_open
+from pprint import pformat
 from sklearn.metrics import precision_recall_fscore_support
 from more_itertools import flatten
 from datasets import Dataset, DatasetDict
@@ -28,6 +31,7 @@ from transformers import (
     DataCollatorForTokenClassification,
     EvalPrediction,
     PreTrainedTokenizer,
+    PretrainedConfig,
     Trainer,
     TrainingArguments,
 )
@@ -40,6 +44,8 @@ precision_metric = evaluate.load("precision")
 recall_metric = evaluate.load("recall")
 metric = evaluate.combine([f1_metric, precision_metric, recall_metric])
 
+PAD_TOKEN_ID = 0
+
 logging.basicConfig(level=logging.INFO)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 logging.info(f"Running on device: {DEVICE}")
@@ -47,40 +53,48 @@ logging.info(f"Running on device: {DEVICE}")
 
 class BertWithCRF(nn.Module):
     def __init__(
-        self, pretrained_model_name: str, num_labels: int, context_len: int = 512
+        self,
+        pretrained_model_name: str | Path,
+        label2id: dict[str, int],
+        id2label: dict[int, str],
+        context_len: int = 512,
+        debug: bool = False,
+        crf: bool = False,
     ):
         super().__init__()
-        from torchcrf import CRF
-
-        self.bert = AutoModelForTokenClassification.from_pretrained(
-            pretrained_model_name, num_labels=num_labels
-        )
-        self.num_labels = num_labels
-        self.crf = CRF(num_labels, batch_first=True)
+        if debug:
+            config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=len(label2id))
+            config.hidden_size = 128
+            config.intermediate_size = 256
+            config.num_hidden_layers = 2
+            config.num_attention_heads = 2
+            self.bert = AutoModelForTokenClassification.from_config(config)
+        else:
+            self.bert = AutoModelForTokenClassification.from_pretrained(
+                pretrained_model_name, num_labels=len(label2id), label2id=label2id, id2label=id2label
+            )
+        self.crf = CRF(len(label2id), batch_first=True) if crf else None
+        self.num_labels = len(label2id)
         self.ctx = context_len
 
     def decode(self, batch):
         # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
         B, N = batch["input_ids"].shape
-        batch_outputs = torch.zeros(
-            (B, N, self.num_labels), dtype=torch.float32, device=self.bert.device
-        )
+        batch_outputs = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=self.bert.device)
         batch_inputs = batch["input_ids"]
         batch_mask = batch["attention_mask"]
         for idx in range(math.ceil(N / 512)):
             input_ids = batch_inputs[:, idx * self.ctx : idx * self.ctx + self.ctx]
             mask = batch_mask[:, idx * self.ctx : idx * self.ctx + self.ctx]
             outputs = self.bert(
-                input_ids=input_ids.to(model.bert.device),
-                attention_mask=mask.to(model.bert.device),
+                input_ids=input_ids.to(self.bert.device),
+                attention_mask=mask.to(self.bert.device),
             )
-            batch_outputs[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = (
-                outputs.logits
-            )
+            batch_outputs[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
         crf_out = self.crf.decode(batch_outputs, mask=batch_mask.bool())
         return crf_out
 
-    def forward(
+    def no_crf_forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
@@ -92,27 +106,45 @@ class BertWithCRF(nn.Module):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+    ):
+        return self.bert.forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            labels=labels,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+    def crf_forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: Optional[torch.LongTensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
     ) -> tuple[torch.Tensor] | TokenClassifierOutput:
-        return_dict = True
+        assert self.crf is not None
         # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
         B, N = input_ids.shape
-        logits = torch.zeros(
-            (B, N, self.num_labels), dtype=torch.float32, device=input_ids.device
-        )
+        logits = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=input_ids.device)
         for idx in range(math.ceil(N / 512)):
             outputs = self.bert(
                 input_ids=input_ids[:, idx * self.ctx : idx * self.ctx + self.ctx],
-                attention_mask=attention_mask[
-                    :, idx * self.ctx : idx * self.ctx + self.ctx
-                ],
-                labels=labels[
-                    :, idx * self.ctx : idx * self.ctx + self.ctx
-                ].contiguous(),
+                attention_mask=attention_mask[:, idx * self.ctx : idx * self.ctx + self.ctx],
+                labels=labels[:, idx * self.ctx : idx * self.ctx + self.ctx].contiguous() if labels is not None else None,
             )
             logits[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
-        crf_out = self.crf(
-            logits, labels, mask=attention_mask.bool(), reduction="token_mean"
-        )
+        crf_out = self.crf(logits, labels, mask=attention_mask.bool(), reduction="token_mean")
 
         loss = None
         if labels is not None:
@@ -124,6 +156,65 @@ class BertWithCRF(nn.Module):
             hidden_states=None,
             attentions=None,
         )
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: Optional[torch.LongTensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> tuple[torch.Tensor] | TokenClassifierOutput:
+        if self.crf:
+            return self.crf_forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+        return self.no_crf_forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=labels,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+
+class CRFTrainer(Trainer):
+    def __init__(self, *args, class_weights: torch.FloatTensor | None = None, crf: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights.to(self.model.device) if class_weights is not None else None
+        self.crf = crf
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs.get("labels")
+        # forward pass
+        outputs = model(**inputs)
+        if self.crf:
+            loss = outputs[0]
+            return (loss, outputs) if return_outputs else loss
+        logits = outputs.get("logits")
+        # compute custom loss
+        loss_fct = nn.CrossEntropyLoss(weight=self.class_weights)
+        loss = loss_fct(logits.view(-1, self.model.num_labels), labels.view(-1))
+        return (loss, outputs) if return_outputs else loss
 
 
 def create_multiclass_labels(classes):
@@ -169,9 +260,7 @@ def _load_file(
     if strip_bio_prefix:
         tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
 
-    special_tokens = set(
-        map(tokenizer.convert_tokens_to_ids, tokenizer.special_tokens_map.values())
-    )
+    special_tokens = set(map(tokenizer.convert_tokens_to_ids, tokenizer.special_tokens_map.values()))
 
     # Add an empty tag for the <s> or </s> tokens
     if tokens.input_ids[0] in special_tokens:
@@ -187,9 +276,7 @@ def _load_file(
     # Sanity check to ensure our labels/inputs line up properly
     n_labels = len(tokens["labels"])  # type:ignore
     n_tokens = len(tokens["input_ids"])  # type:ignore
-    assert (
-        n_labels == n_tokens
-    ), f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
+    assert n_labels == n_tokens, f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
 
     # Split it up into context-window sized chunks (for training)
     if context_len is not None:
@@ -198,9 +285,7 @@ def _load_file(
             labels = tokens["labels"][idx * context_len : (idx + 1) * context_len]
             input_ids = tokens["input_ids"][idx * context_len : (idx + 1) * context_len]
             mask = tokens["attention_mask"][idx * context_len : (idx + 1) * context_len]
-            sub_examples.append(
-                {"labels": labels, "input_ids": input_ids, "attention_mask": mask}
-            )
+            sub_examples.append({"labels": labels, "input_ids": input_ids, "attention_mask": mask})
         return sub_examples
 
     return [tokens]
@@ -228,11 +313,10 @@ def load_data(
             label2id=label2id,
             tokenizer=tokenizer,
             context_len=context_len,
+            strip_bio_prefix=strip_bio_prefix,
         )
         train.extend(examples)
-    logging.info(
-        f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files)."
-    )
+    logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
 
     val = []
     for js in os.listdir(val_dir):
@@ -241,11 +325,10 @@ def load_data(
             label2id=label2id,
             tokenizer=tokenizer,
             context_len=context_len,
+            strip_bio_prefix=strip_bio_prefix,
         )
         val.extend(examples)
-    logging.info(
-        f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files)."
-    )
+    logging.info(f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files).")
 
     test = []
     for js in os.listdir(test_dir):
@@ -254,11 +337,10 @@ def load_data(
             label2id=label2id,
             tokenizer=tokenizer,
             context_len=context_len,
+            strip_bio_prefix=strip_bio_prefix,
         )
         test.extend(examples)
-    logging.info(
-        f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files)."
-    )
+    logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
 
     return DatasetDict(
         {
@@ -273,37 +355,24 @@ def load_model(
     pretrained_model_name: str | Path,
     label2id: dict[str, int],
     debug: bool,
+    crf: bool,
+    context_len: int,
     checkpoint: str | Path | None = None,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
-    # Shrink the size if we're debugging stuff
-    if debug:
-        config = AutoConfig.from_pretrained(
-            pretrained_model_name,
-            num_labels=len(label2id),
-            id2label=id2label,
-            label2id=label2id,
-        )
-        config.hidden_size = 128
-        config.intermediate_size = 256
-        config.num_hidden_layers = 2
-        config.num_attention_heads = 2
-        model = AutoModelForTokenClassification.from_config(config).to(DEVICE)
-    else:
-        model = AutoModelForTokenClassification.from_pretrained(
-            pretrained_model_name,
-            num_labels=len(label2id),
-            id2label=id2label,
-            label2id=label2id,
-        ).to(DEVICE)
-
-    logging.info(f"Loaded MultiLabelNER model with base of {pretrained_model_name}")
+    model = BertWithCRF(
+        pretrained_model_name,
+        label2id=label2id,
+        id2label=id2label,
+        context_len=context_len,
+        debug=debug,
+        crf=crf,
+    )
+    logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
     if checkpoint is not None:
         state_dict = {}
-        with safetensors.safe_open(
-            Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE
-        ) as file:
+        with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
             for k in file.keys():
                 state_dict[k] = file.get_tensor(k)
         model.load_state_dict(state_dict)
@@ -313,14 +382,57 @@ def load_model(
 
 def compute_metrics(eval_out: EvalPrediction):
     logits, labels = eval_out
+    assert isinstance(labels, np.ndarray)
+
     preds = np.argmax(logits, axis=-1)
     metrics = metric.compute(
         references=labels.ravel(),
         predictions=preds.ravel(),
         labels=list(range(1, np.max(labels))),
-        average="weighted",
+        average="micro",
     )
     return metrics
+
+
+def predict(model: nn.Module, data, collator, context_len: int = 512, overlap_len: int = 256, batch_size: int = 8):
+    all_preds = []
+    all_labels = []
+    model.eval()
+    with torch.no_grad():
+        for examples in tqdm(chunked(data, n=batch_size), total=math.ceil(len(data) / batch_size)):
+            batch = collator(examples)
+            batch["input_ids"] = batch["input_ids"].to(model.bert.device)
+            batch["attention_mask"] = batch["attention_mask"].to(model.bert.device)
+            batch["labels"] = batch["labels"].to(model.bert.device)
+            if hasattr(model, "decode"):
+                preds = model.decode(batch)
+            else:
+                B, N = batch["input_ids"].shape
+                batch_outputs = torch.zeros((B, N, len(CLASSES)), dtype=torch.float32, device=model.bert.device)
+                batch_inputs = batch["input_ids"]
+                batch_mask = batch["attention_mask"]
+                for idx in range(math.ceil(N / 512)):
+                    input_ids = batch_inputs[:, idx * context_len : idx * context_len + context_len]
+                    mask = batch_mask[:, idx * context_len : idx * context_len + context_len]
+                    outputs = model(
+                        input_ids=input_ids.to(model.bert.device),
+                        attention_mask=mask.to(model.bert.device),
+                    )
+                    batch_outputs[:, idx * context_len : idx * context_len + context_len, :] = outputs.logits
+                preds = torch.argmax(batch_outputs, dim=-1)[mask != 0].cpu().tolist()
+            for pred, label, mask in zip(preds, batch["labels"], batch["attention_mask"]):
+                all_preds.append(pred)
+                all_labels.append(label[mask != 0].cpu().tolist())
+    flat_preds = [idx2lab[p] for ex in all_preds for p in ex]
+    flat_labels = [idx2lab[l] for ex in all_labels for l in ex]
+
+    # Compute real F1 score
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        flat_labels, flat_preds, labels=CLASSES[1:], average="micro"
+    )
+    pprint(dict(precision=precision, recall=recall, f1=f1))
+    df = pd.DataFrame({"preds": flat_preds, "labels": flat_labels})
+    return df, {"precision": precision, "recall": recall, "f1": f1}
 
 
 @click.group("cli")
@@ -330,13 +442,9 @@ def cli():
 
 @click.command()
 @click.option("--model", type=str)
-@click.option(
-    "--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True)
-)
-@click.option(
-    "--output_dir",
-    type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True),
-)
+@click.option("--crf", is_flag=True)
+@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
+@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
 @click.option("--proof", is_flag=True)
@@ -346,13 +454,14 @@ def cli():
 @click.option("--context_len", default=512, type=int)
 @click.option("--batch_size", default=8)
 @click.option("--learning_rate", default=1e-4)
-@click.option("--epochs", default=15)
+@click.option("--steps", default=500)
 @click.option("--warmup_ratio", default=0.05)
 @click.option("--label_smoothing_factor", default=0.1)
 @click.option("--logging_steps", default=10)
 @click.option("--debug", is_flag=True)
 def train(
     model: str,
+    crf: bool,
     definition: bool,
     theorem: bool,
     proof: bool,
@@ -364,7 +473,7 @@ def train(
     output_dir: Path,
     batch_size: int,
     learning_rate: float,
-    epochs: int,
+    steps: int,
     warmup_ratio: float,
     label_smoothing_factor: float,
     logging_steps: int,
@@ -382,22 +491,21 @@ def train(
         ).items()
         if v
     )
+
     label2id = create_multiclass_labels(class_names)
     logging.info(f"Label map: {label2id}")
-    ner_model = load_model(model, label2id=label2id, debug=debug)
+    ner_model = load_model(model, crf=crf, context_len=context_len, label2id=label2id, debug=debug)
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     # Data loading
     data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id)
-    collator = DataCollatorForTokenClassification(
-        tokenizer, padding=True, label_pad_token_id=-100
-    )
+    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
     # Build the trainer
     args = TrainingArguments(
         output_dir=str(output_dir),
         learning_rate=learning_rate,
-        num_train_epochs=epochs,
+        max_steps=steps,
         warmup_ratio=warmup_ratio,
         label_smoothing_factor=label_smoothing_factor,
         optim="adamw_torch",
@@ -406,12 +514,16 @@ def train(
         logging_strategy="steps",
         logging_steps=logging_steps,
         eval_strategy="steps",
-        eval_steps=50,
-        save_strategy="epoch",
+        eval_steps=250,
+        save_strategy="steps",
+        save_steps=250,
         save_total_limit=3,
+        load_best_model_at_end=True,
+        metric_for_best_model="f1",
         use_cpu=DEVICE == "cpu",
     )
-    trainer = Trainer(
+
+    trainer = CRFTrainer(
         model=ner_model,
         args=args,
         data_collator=collator,
@@ -419,21 +531,17 @@ def train(
         eval_dataset=data["val"],
         compute_metrics=compute_metrics,
     )
+
     trainer.train()
-    trainer.save_model(str(Path(output_dir) / "checkpoint-final"))
+    trainer.save_model(str(Path(output_dir) / "checkpoint-best"))
 
 
 @click.command()
 @click.option("--model", type=str)
+@click.option("--crf", is_flag=True)
 @click.option("--checkpoint", default=None, type=click.Path(exists=True))
-@click.option(
-    "--data_dir",
-    type=click.Path(exists=True, file_okay=False, writable=True, resolve_path=True),
-)
-@click.option(
-    "--output_dir",
-    type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True),
-)
+@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, writable=True, resolve_path=True))
+@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
 @click.option("--proof", is_flag=True)
@@ -446,6 +554,7 @@ def train(
 @click.option("--debug", is_flag=True)
 def test(
     model: str,
+    crf: bool,
     checkpoint: Path | None,
     definition: bool,
     theorem: bool,
@@ -474,16 +583,14 @@ def test(
     )
     label2id = create_multiclass_labels(class_names)
     id2label = {v: k for k, v in label2id.items()}
-    ner_model = load_model(model, label2id=label2id, debug=debug, checkpoint=checkpoint)
+    ner_model = load_model(
+        model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, checkpoint=checkpoint
+    )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     # Data loading
-    data = load_data(
-        data_dir, label2id=label2id, tokenizer=tokenizer, context_len=context_len
-    )
-    collator = DataCollatorForTokenClassification(
-        tokenizer, padding=True, label_pad_token_id=-100
-    )
+    data = load_data(data_dir, label2id=label2id, tokenizer=tokenizer, context_len=context_len)
+    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
     args = TrainingArguments(
         output_dir=str(output_dir),
@@ -491,7 +598,7 @@ def test(
         per_device_eval_batch_size=batch_size,
         use_cpu=DEVICE == "cpu",
     )
-    trainer = Trainer(
+    trainer = CRFTrainer(
         model=ner_model,
         args=args,
         data_collator=collator,
@@ -499,18 +606,13 @@ def test(
         compute_metrics=compute_metrics,
     )
     logits, labels, metrics = trainer.predict(data["test"])  # type:ignore
+    logging.info(pformat(metrics))
     preds = np.argmax(logits, axis=-1)
 
     output = {
-        "labels": [[id2label[l] for l in ll if l != -100] for ll in labels],
-        "preds": [
-            [id2label[p] for p, l in zip(pp, ll) if l != -100]
-            for pp, ll in zip(preds, labels)
-        ],
-        "tokens": [
-            [tokenizer.convert_ids_to_tokens(i) for i in item]
-            for item in data["test"]["input_ids"]
-        ],
+        "labels": [[id2label[l] for l in ll if l != 0] for ll in labels],
+        "preds": [[id2label[p] for p, l in zip(pp, ll) if l != 0] for pp, ll in zip(preds, labels)],
+        "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["test"]["input_ids"]],
     }
     test_df = pd.DataFrame(output)
     test_df.to_json(Path(output_dir, "preds.json"))

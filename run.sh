@@ -7,8 +7,8 @@ wandb login $(cat /etc/api-tokens/wandb-token)
 # Run training
 python src/ner_training/main.py train \
     --model FacebookAI/roberta-base \
-    --definition --theorem --proof --example --name \
-    --epochs 25 \
+    --definition --theorem --proof --example \
+    --steps 1000 \
     --data_dir /volume/ner/ \
     --output_dir /volume/ner/outputs/ \
 
@@ -16,6 +16,6 @@ python src/ner_training/main.py train \
 python src/ner_training/main.py test \
     --model FacebookAI/roberta-base \
     --checkpoint /volume/ner/outputs/checkpoint-final \
-    --definition --theorem --proof --example --name \
+    --definition --theorem --proof --example \
     --data_dir /volume/ner \
     --output_dir /volume/ner/outputs/
