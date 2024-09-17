@@ -17,7 +17,6 @@ import evaluate
 import ray
 from tqdm import tqdm
 from torchcrf import CRF
-from safetensors import safe_open
 from pprint import pformat
 from sklearn.metrics import precision_recall_fscore_support
 from more_itertools import flatten
@@ -375,6 +374,7 @@ def load_model(
     logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
     if checkpoint is not None:
         state_dict = {}
+        from safetensors import safe_open
         with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
             for k in file.keys():
                 key = f"bert.{k}" if "bert" in k else k
