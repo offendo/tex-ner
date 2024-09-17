@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 import wandb
 import evaluate
+import tune
 from tqdm import tqdm
 from torchcrf import CRF
 from safetensors import safe_open
@@ -141,7 +142,9 @@ class BertWithCRF(nn.Module):
             outputs = self.bert(
                 input_ids=input_ids[:, idx * self.ctx : idx * self.ctx + self.ctx],
                 attention_mask=attention_mask[:, idx * self.ctx : idx * self.ctx + self.ctx],
-                labels=labels[:, idx * self.ctx : idx * self.ctx + self.ctx].contiguous() if labels is not None else None,
+                labels=(
+                    labels[:, idx * self.ctx : idx * self.ctx + self.ctx].contiguous() if labels is not None else None
+                ),
             )
             logits[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
         crf_out = self.crf(logits, labels, mask=attention_mask.bool(), reduction="token_mean")
@@ -374,7 +377,8 @@ def load_model(
         state_dict = {}
         with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
             for k in file.keys():
-                state_dict[k] = file.get_tensor(k)
+                key = f"bert.{k}" if "bert" in k else k
+                state_dict[key] = file.get_tensor(k)
         model.load_state_dict(state_dict)
         logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
     return model
@@ -610,15 +614,116 @@ def test(
     preds = np.argmax(logits, axis=-1)
 
     output = {
-        "labels": [[id2label[l] for l in ll if l != 0] for ll in labels],
-        "preds": [[id2label[p] for p, l in zip(pp, ll) if l != 0] for pp, ll in zip(preds, labels)],
+        "labels": [[id2label[l] for l in ll] for ll in labels],
+        "preds": [[id2label[p] for p, l in zip(pp, ll)] for pp, ll in zip(preds, labels)],
         "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["test"]["input_ids"]],
     }
     test_df = pd.DataFrame(output)
     test_df.to_json(Path(output_dir, "preds.json"))
 
 
+@click.command()
+@click.option("--model", type=str)
+@click.option("--crf", is_flag=True)
+@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
+@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
+@click.option("--definition", is_flag=True)
+@click.option("--theorem", is_flag=True)
+@click.option("--proof", is_flag=True)
+@click.option("--example", is_flag=True)
+@click.option("--reference", is_flag=True)
+@click.option("--name", is_flag=True)
+@click.option("--context_len", default=512, type=int)
+@click.option("--steps", default=500)
+@click.option("--logging_steps", default=10)
+@click.option("--debug", is_flag=True)
+def raytune(
+    model: str,
+    crf: bool,
+    definition: bool,
+    theorem: bool,
+    proof: bool,
+    example: bool,
+    name: bool,
+    reference: bool,
+    context_len: int,
+    data_dir: Path,
+    output_dir: Path,
+    steps: int,
+    logging_steps: int,
+    debug: bool,
+):
+    class_names = tuple(
+        k
+        for k, v in dict(
+            definition=definition,
+            theorem=theorem,
+            proof=proof,
+            example=example,
+            name=name,
+            reference=reference,
+        ).items()
+        if v
+    )
+    label2id = create_multiclass_labels(class_names)
+
+    def raytune_hp_space(trial):
+        return {
+            "learning_rate": tune.loguniform(1e-6, 1e-3),
+            "per_device_train_batch_size": tune.choice([4, 8, 16, 32]),
+            "warmup_ratio": tune.loguniform(0.0, 0.1),
+            "weight_decay": tune.loguniform(0.0, 1e-3),
+            "lr_scheduler_type": tune.choice(["linear", "cosine", "inverse_sqrt"]),
+            "label_smoothing_factor": tune.uniform(0.0, 0.1),
+        }
+
+    def model_init(trial):
+        model = load_model(model, label2id=label2id, debug=debug, crf=crf, context_len=context_len)
+
+    # Data loading
+    tokenizer = AutoTokenizer.from_pretrained(model)
+    data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id)
+    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
+    args = TrainingArguments(
+        output_dir=str(output_dir),
+        max_steps=steps,
+        optim="adamw_torch",
+        logging_strategy="steps",
+        logging_steps=logging_steps,
+        eval_strategy="steps",
+        eval_steps=100,
+        metric_for_best_model="f1",
+        use_cpu=DEVICE == "cpu",
+    )
+    trainer = Trainer(
+        model=None,
+        args=args,
+        train_dataset=data["train"],
+        eval_dataset=data["val"],
+        compute_metrics=compute_metrics,
+        tokenizer=tokenizer,
+        model_init=model_init,
+        data_collator=collator,
+    )
+    best_trial = trainer.hyperparameter_search(
+        direction="maximize",
+        backend="ray",
+        hp_space=raytune_hp_space,
+        n_trials=50,
+    )
+    logging.info("Completed hyperparameter search.")
+    logging.info(best_trial)
+
+    save_path = Path(output_dir, "best-trial.pt")
+    with open(save_path, "wb") as f:
+        torch.save(best_trial, f)
+        logging.info(f"Saved hyperparameter search results to {save_path}.")
+
+    return best_trial
+
+
 if __name__ == "__main__":
     cli.add_command(train)
     cli.add_command(test)
+    cli.add_command(raytune)
     cli()
