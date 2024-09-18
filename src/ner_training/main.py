@@ -441,6 +441,7 @@ def cli():
 @click.option("--context_len", default=512, type=int)
 @click.option("--batch_size", default=8)
 @click.option("--learning_rate", default=1e-4)
+@click.option("--weight_decay", default=0)
 @click.option("--steps", default=500)
 @click.option("--warmup_ratio", default=0.05)
 @click.option("--label_smoothing_factor", default=0.1)
@@ -461,6 +462,7 @@ def train(
     output_dir: Path,
     batch_size: int,
     learning_rate: float,
+    weight_decay: float,
     steps: int,
     warmup_ratio: float,
     label_smoothing_factor: float,
@@ -496,6 +498,7 @@ def train(
         learning_rate=learning_rate,
         max_steps=steps,
         warmup_ratio=warmup_ratio,
+        weight_decay=weight_decay,
         label_smoothing_factor=label_smoothing_factor,
         optim="adamw_torch",
         lr_scheduler_type=scheduler,
