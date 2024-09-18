@@ -44,7 +44,7 @@ precision_metric = evaluate.load("precision")
 recall_metric = evaluate.load("recall")
 metric = evaluate.combine([f1_metric, precision_metric, recall_metric])
 
-PAD_TOKEN_ID = 0
+PAD_TOKEN_ID = -100
 
 logging.basicConfig(level=logging.INFO)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -75,24 +75,7 @@ class BertWithCRF(nn.Module):
             )
         self.crf = CRF(len(label2id), batch_first=True) if crf else None
         self.num_labels = len(label2id)
-        self.ctx = context_len
-
-    def decode(self, batch):
-        # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
-        B, N = batch["input_ids"].shape
-        batch_outputs = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=self.bert.device)
-        batch_inputs = batch["input_ids"]
-        batch_mask = batch["attention_mask"]
-        for idx in range(math.ceil(N / 512)):
-            input_ids = batch_inputs[:, idx * self.ctx : idx * self.ctx + self.ctx]
-            mask = batch_mask[:, idx * self.ctx : idx * self.ctx + self.ctx]
-            outputs = self.bert(
-                input_ids=input_ids.to(self.bert.device),
-                attention_mask=mask.to(self.bert.device),
-            )
-            batch_outputs[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
-        crf_out = self.crf.decode(batch_outputs, mask=batch_mask.bool())
-        return crf_out
+        self.ctx = 512  # this is only used for BERT context window, so just keep it static
 
     def no_crf_forward(
         self,
@@ -146,7 +129,8 @@ class BertWithCRF(nn.Module):
                 ),
             )
             logits[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
-        crf_out = self.crf(logits, labels, mask=attention_mask.bool(), reduction="token_mean")
+        is_pad = (labels == -100)
+        crf_out = self.crf(logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="token_mean")
 
         loss = None
         if labels is not None:
@@ -243,7 +227,7 @@ def _load_file(
     path: str | Path,
     label2id: dict[str, int],
     tokenizer: PreTrainedTokenizer,
-    context_len: Optional[int] = None,
+    context_len: int = -1,
     strip_bio_prefix: bool = True,
 ):
     # Load the data
@@ -281,7 +265,7 @@ def _load_file(
     assert n_labels == n_tokens, f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
 
     # Split it up into context-window sized chunks (for training)
-    if context_len is not None:
+    if context_len > 0:
         sub_examples = []
         for idx in range(math.ceil(n_tokens / context_len)):
             labels = tokens["labels"][idx * context_len : (idx + 1) * context_len]
