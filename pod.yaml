@@ -18,7 +18,7 @@ spec:
     - name: training
       image: ghcr.io/offendo/ner:latest
       command: ["sleep", "infinity"]
-      workingDir: /app/
+      workingDir: /app/tex-ner
       volumeMounts:
         - name: git-repo
           mountPath: /app

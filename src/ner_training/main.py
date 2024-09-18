@@ -636,6 +636,7 @@ def test(
 @click.option("--context_len", default=512, type=int)
 @click.option("--steps", default=500)
 @click.option("--logging_steps", default=10)
+@click.option("--trials", default=50)
 @click.option("--debug", is_flag=True)
 def tune(
     model: str,
@@ -650,6 +651,7 @@ def tune(
     data_dir: Path,
     output_dir: Path,
     steps: int,
+    trials: int,
     logging_steps: int,
     debug: bool,
 ):
@@ -695,6 +697,8 @@ def tune(
         logging_steps=logging_steps,
         eval_strategy="steps",
         eval_steps=50,
+        save_strategy="steps",
+        save_steps=steps,
         metric_for_best_model="f1",
         use_cpu=DEVICE == "cpu",
     )
@@ -712,7 +716,7 @@ def tune(
         direction="maximize",
         backend="ray",
         hp_space=raytune_hp_space,
-        n_trials=50,
+        n_trials=trials,
     )
     logging.info("Completed hyperparameter search.")
     logging.info(best_trial)
