@@ -441,7 +441,7 @@ def cli():
 @click.option("--context_len", default=512, type=int)
 @click.option("--batch_size", default=8)
 @click.option("--learning_rate", default=1e-4)
-@click.option("--weight_decay", default=0)
+@click.option("--weight_decay", default=0.0)
 @click.option("--steps", default=500)
 @click.option("--warmup_ratio", default=0.05)
 @click.option("--label_smoothing_factor", default=0.1)
