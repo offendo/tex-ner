@@ -15,7 +15,11 @@ export WANDB_RUN_NAME="$RUN_NAME"
 python src/ner_training/main.py train \
     --model FacebookAI/roberta-base \
     --definition --theorem --proof --example \
-    --steps 1000 \
+    --steps 1500 \
+    --learning_rate 1.5e-5 \
+    --batch_size 32 \
+    --label_smoothing_factor 0.02 \
+    --scheduler "cosine" \
     --data_dir /volume/ner/ \
     --output_dir /volume/ner/outputs/$RUN_NAME \
 

@@ -461,6 +461,7 @@ def cli():
 @click.option("--steps", default=500)
 @click.option("--warmup_ratio", default=0.05)
 @click.option("--label_smoothing_factor", default=0.1)
+@click.option("--scheduler", default="linear")
 @click.option("--logging_steps", default=10)
 @click.option("--debug", is_flag=True)
 def train(
@@ -480,6 +481,7 @@ def train(
     steps: int,
     warmup_ratio: float,
     label_smoothing_factor: float,
+    scheduler: str,
     logging_steps: int,
     debug: bool,
 ):
@@ -513,6 +515,7 @@ def train(
         warmup_ratio=warmup_ratio,
         label_smoothing_factor=label_smoothing_factor,
         optim="adamw_torch",
+        lr_scheduler_type=scheduler,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         logging_strategy="steps",
