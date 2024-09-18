@@ -687,6 +687,7 @@ def tune(
     data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id)
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
     args = TrainingArguments(
+        disable_tqdm=True,
         output_dir=str(output_dir),
         max_steps=steps,
         optim="adamw_torch",
