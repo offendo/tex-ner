@@ -29,7 +29,8 @@ python src/ner_training/main.py train \
 # Run testing
 python src/ner_training/main.py test \
     --model FacebookAI/roberta-base \
-    --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-final \
+    --crf \
+    --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     --definition --theorem --proof --example \
     --data_dir /volume/ner \
     --output_dir /volume/ner/outputs/$RUN_NAME
