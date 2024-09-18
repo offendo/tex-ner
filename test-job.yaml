@@ -24,7 +24,7 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: elevenses-symbiote
+              value: pigeonholers-municipalizes
           command: ["bash", "test.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
