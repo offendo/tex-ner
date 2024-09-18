@@ -11,7 +11,7 @@ mkdir -p "/volume/ner/outputs/$RUN_NAME"
 export WANDB_RUN_NAME="$RUN_NAME"
 python src/ner_training/main.py test \
     --model FacebookAI/roberta-base \
-    --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-final \
+    --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     --definition --theorem --proof --example \
     --data_dir /volume/ner \
     --output_dir /volume/ner/outputs/$RUN_NAME
