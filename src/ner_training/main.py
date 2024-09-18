@@ -377,8 +377,7 @@ def load_model(
         from safetensors import safe_open
         with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
             for k in file.keys():
-                key = f"bert.{k}" if "bert" in k else k
-                state_dict[key] = file.get_tensor(k)
+                state_dict[k] = file.get_tensor(k)
         model.load_state_dict(state_dict)
         logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
     return model
