@@ -19,6 +19,7 @@ from tqdm import tqdm
 from torchcrf import CRF
 from pprint import pformat
 from sklearn.metrics import precision_recall_fscore_support
+from sklearn.utils.class_weight import compute_class_weight
 from more_itertools import flatten
 from datasets import Dataset, DatasetDict
 from more_itertools import chunked
@@ -186,7 +187,7 @@ class BertWithCRF(nn.Module):
 class CRFTrainer(Trainer):
     def __init__(self, *args, class_weights: torch.FloatTensor | None = None, crf: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
-        self.class_weights = class_weights.to(self.model.device) if class_weights is not None else None
+        self.class_weights = class_weights.to(self.model.bert.device) if class_weights is not None else None
         self.crf = crf
 
     def compute_loss(self, model, inputs, return_outputs=False):
@@ -448,6 +449,7 @@ def cli():
 @click.option("--scheduler", default="linear")
 @click.option("--logging_steps", default=10)
 @click.option("--debug", is_flag=True)
+@click.option("--use_class_weights", is_flag=True)
 def train(
     model: str,
     crf: bool,
@@ -469,6 +471,7 @@ def train(
     scheduler: str,
     logging_steps: int,
     debug: bool,
+    use_class_weights: bool,
 ):
     class_names = tuple(
         k
@@ -516,6 +519,13 @@ def train(
         use_cpu=DEVICE == "cpu",
     )
 
+    if use_class_weights:
+        classes = list(label2id.values())
+        labels = list(flatten(data['train']['labels'])) + classes # add the classes back in so we have at least 1 example
+        class_weights = torch.tensor(compute_class_weight('balanced', classes=np.array(classes), y=np.array(labels)), dtype=torch.float32)
+    else:
+        class_weights = None
+
     trainer = CRFTrainer(
         model=ner_model,
         args=args,
@@ -523,6 +533,7 @@ def train(
         train_dataset=data["train"],
         eval_dataset=data["val"],
         compute_metrics=compute_metrics,
+        class_weights=class_weights
     )
 
     trainer.train()
