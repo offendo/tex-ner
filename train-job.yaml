@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner
+  name: nilay-ner-train
 spec:
   template:
     spec:
@@ -22,7 +22,7 @@ spec:
       containers:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
-          command: ["bash", "tune.sh"]
+          command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
             - name: git-repo
