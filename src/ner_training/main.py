@@ -73,7 +73,7 @@ class BertWithCRF(nn.Module):
             self.bert = AutoModelForTokenClassification.from_config(config)
         else:
             self.bert = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name, num_labels=len(label2id), label2id=label2id, id2label=id2label, dropout=dropout
+                pretrained_model_name, num_labels=len(label2id), label2id=label2id, id2label=id2label, hidden_dropout_prob=dropout
             )
         self.crf = CRF(len(label2id), batch_first=True) if crf else None
         self.num_labels = len(label2id)
