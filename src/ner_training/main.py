@@ -345,7 +345,7 @@ def load_model(
     debug: bool,
     crf: bool,
     context_len: int,
-    dropout: float,
+    dropout: float = 0.0,
     checkpoint: str | Path | None = None,
 ):
     id2label = {v: k for k, v in label2id.items()}
@@ -605,7 +605,7 @@ def test(
     label2id = create_multiclass_labels(class_names)
     id2label = {v: k for k, v in label2id.items()}
     ner_model = load_model(
-        model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, checkpoint=checkpoint
+        model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, checkpoint=checkpoint, dropout=0.0
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
