@@ -59,6 +59,7 @@ class BertWithCRF(nn.Module):
         label2id: dict[str, int],
         id2label: dict[int, str],
         context_len: int = 512,
+        dropout: float = 0.0,
         debug: bool = False,
         crf: bool = False,
     ):
@@ -72,7 +73,7 @@ class BertWithCRF(nn.Module):
             self.bert = AutoModelForTokenClassification.from_config(config)
         else:
             self.bert = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name, num_labels=len(label2id), label2id=label2id, id2label=id2label
+                pretrained_model_name, num_labels=len(label2id), label2id=label2id, id2label=id2label, dropout=dropout
             )
         self.crf = CRF(len(label2id), batch_first=True) if crf else None
         self.num_labels = len(label2id)
@@ -185,7 +186,7 @@ class BertWithCRF(nn.Module):
 
 
 class CRFTrainer(Trainer):
-    def __init__(self, *args, class_weights: torch.FloatTensor | None = None, crf: bool = False, **kwargs):
+    def __init__(self, *args, class_weights: torch.Tensor | None = None, crf: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.class_weights = class_weights.to(self.model.bert.device) if class_weights is not None else None
         self.crf = crf
@@ -344,6 +345,7 @@ def load_model(
     debug: bool,
     crf: bool,
     context_len: int,
+    dropout: float,
     checkpoint: str | Path | None = None,
 ):
     id2label = {v: k for k, v in label2id.items()}
@@ -446,10 +448,12 @@ def cli():
 @click.option("--steps", default=500)
 @click.option("--warmup_ratio", default=0.05)
 @click.option("--label_smoothing_factor", default=0.1)
+@click.option("--dropout", default=0.0)
 @click.option("--scheduler", default="linear")
 @click.option("--logging_steps", default=10)
 @click.option("--debug", is_flag=True)
 @click.option("--use_class_weights", is_flag=True)
+@click.option("--randomize_last_layer", is_flag=True)
 def train(
     model: str,
     crf: bool,
@@ -468,10 +472,12 @@ def train(
     steps: int,
     warmup_ratio: float,
     label_smoothing_factor: float,
+    dropout: float,
     scheduler: str,
     logging_steps: int,
     debug: bool,
     use_class_weights: bool,
+    randomize_last_layer: bool,
 ):
     class_names = tuple(
         k
@@ -488,8 +494,19 @@ def train(
 
     label2id = create_multiclass_labels(class_names)
     logging.info(f"Label map: {label2id}")
-    ner_model = load_model(model, crf=crf, context_len=context_len, label2id=label2id, debug=debug)
+    ner_model = load_model(model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, dropout=dropout)
     tokenizer = AutoTokenizer.from_pretrained(model)
+
+    if randomize_last_layer:
+        last_layer = None
+        if hasattr(ner_model.bert, "roberta"):
+            last_layer = ner_model.bert.roberta.encoder.layer[-1]
+        elif hasattr(ner_model.bert, "bert"):
+            last_layer = ner_model.bert.ber.encoder.layer[-1]
+        if last_layer is not None:
+            for name, param in last_layer.named_parameters():
+                if 'weight' in name and "LayerNorm" not in name:
+                    torch.nn.init.xavier_normal_(param)
 
     # Data loading
     data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id)
