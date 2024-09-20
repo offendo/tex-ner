@@ -5,25 +5,25 @@ import logging
 import math
 import os
 from pathlib import Path
+from pprint import pformat
 from typing import Callable, Iterable, Optional
 
 import click
+import evaluate
 import numpy as np
 import pandas as pd
+import ray
 import torch
 import torch.nn as nn
 import wandb
-import evaluate
-import ray
-from tqdm import tqdm
-from torchcrf import CRF
-from pprint import pformat
-from sklearn.metrics import precision_recall_fscore_support
-from sklearn.utils.class_weight import compute_class_weight
-from more_itertools import flatten
 from datasets import Dataset, DatasetDict
-from more_itertools import chunked
+from more_itertools import chunked, flatten
+from safetensors import safe_open
+from sklearn.metrics import precision_recall_fscore_support
 from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.utils.class_weight import compute_class_weight
+from torchcrf import CRF
+from tqdm import tqdm
 from transformers import (
     AutoConfig,
     AutoModel,
@@ -31,8 +31,8 @@ from transformers import (
     AutoTokenizer,
     DataCollatorForTokenClassification,
     EvalPrediction,
-    PreTrainedTokenizer,
     PretrainedConfig,
+    PreTrainedTokenizer,
     Trainer,
     TrainingArguments,
 )
@@ -73,7 +73,11 @@ class BertWithCRF(nn.Module):
             self.bert = AutoModelForTokenClassification.from_config(config)
         else:
             self.bert = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name, num_labels=len(label2id), label2id=label2id, id2label=id2label, hidden_dropout_prob=dropout
+                pretrained_model_name,
+                num_labels=len(label2id),
+                label2id=label2id,
+                id2label=id2label,
+                hidden_dropout_prob=dropout,
             )
         self.crf = CRF(len(label2id), batch_first=True) if crf else None
         self.num_labels = len(label2id)
@@ -131,7 +135,7 @@ class BertWithCRF(nn.Module):
                 ),
             )
             logits[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
-        is_pad = (labels == -100)
+        is_pad = labels == -100
         crf_out = self.crf(logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="token_mean")
 
         loss = None
@@ -355,13 +359,13 @@ def load_model(
         label2id=label2id,
         id2label=id2label,
         context_len=context_len,
+        dropout=dropout,
         debug=debug,
         crf=crf,
     )
     logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
     if checkpoint is not None:
         state_dict = {}
-        from safetensors import safe_open
         with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
             for k in file.keys():
                 state_dict[k] = file.get_tensor(k)
@@ -505,7 +509,7 @@ def train(
             last_layer = ner_model.bert.ber.encoder.layer[-1]
         if last_layer is not None:
             for name, param in last_layer.named_parameters():
-                if 'weight' in name and "LayerNorm" not in name:
+                if "weight" in name and "LayerNorm" not in name:
                     torch.nn.init.xavier_normal_(param)
 
     # Data loading
@@ -538,8 +542,12 @@ def train(
 
     if use_class_weights:
         classes = list(label2id.values())
-        labels = list(flatten(data['train']['labels'])) + classes # add the classes back in so we have at least 1 example
-        class_weights = torch.tensor(compute_class_weight('balanced', classes=np.array(classes), y=np.array(labels)), dtype=torch.float32)
+        labels = (
+            list(flatten(data["train"]["labels"])) + classes
+        )  # add the classes back in so we have at least 1 example
+        class_weights = torch.tensor(
+            compute_class_weight("balanced", classes=np.array(classes), y=np.array(labels)), dtype=torch.float32
+        )
     else:
         class_weights = None
 
@@ -550,7 +558,7 @@ def train(
         train_dataset=data["train"],
         eval_dataset=data["val"],
         compute_metrics=compute_metrics,
-        class_weights=class_weights
+        class_weights=class_weights,
     )
 
     trainer.train()
@@ -699,6 +707,7 @@ def tune(
     def make_model_init(*args, **kwargs):
         def model_init(trial):
             return load_model(*args, **kwargs)
+
         return model_init
 
     # Data loading
