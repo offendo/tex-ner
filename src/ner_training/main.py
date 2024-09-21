@@ -47,7 +47,7 @@ metric = evaluate.combine([f1_metric, precision_metric, recall_metric])
 
 PAD_TOKEN_ID = -100
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 logging.info(f"Running on device: {DEVICE}")
 
@@ -386,47 +386,6 @@ def compute_metrics(eval_out: EvalPrediction):
         average="micro",
     )
     return metrics
-
-
-def predict(model: nn.Module, data, collator, context_len: int = 512, overlap_len: int = 256, batch_size: int = 8):
-    all_preds = []
-    all_labels = []
-    model.eval()
-    with torch.no_grad():
-        for examples in tqdm(chunked(data, n=batch_size), total=math.ceil(len(data) / batch_size)):
-            batch = collator(examples)
-            batch["input_ids"] = batch["input_ids"].to(model.bert.device)
-            batch["attention_mask"] = batch["attention_mask"].to(model.bert.device)
-            batch["labels"] = batch["labels"].to(model.bert.device)
-            if hasattr(model, "decode"):
-                preds = model.decode(batch)
-            else:
-                B, N = batch["input_ids"].shape
-                batch_outputs = torch.zeros((B, N, len(CLASSES)), dtype=torch.float32, device=model.bert.device)
-                batch_inputs = batch["input_ids"]
-                batch_mask = batch["attention_mask"]
-                for idx in range(math.ceil(N / 512)):
-                    input_ids = batch_inputs[:, idx * context_len : idx * context_len + context_len]
-                    mask = batch_mask[:, idx * context_len : idx * context_len + context_len]
-                    outputs = model(
-                        input_ids=input_ids.to(model.bert.device),
-                        attention_mask=mask.to(model.bert.device),
-                    )
-                    batch_outputs[:, idx * context_len : idx * context_len + context_len, :] = outputs.logits
-                preds = torch.argmax(batch_outputs, dim=-1)[mask != 0].cpu().tolist()
-            for pred, label, mask in zip(preds, batch["labels"], batch["attention_mask"]):
-                all_preds.append(pred)
-                all_labels.append(label[mask != 0].cpu().tolist())
-    flat_preds = [idx2lab[p] for ex in all_preds for p in ex]
-    flat_labels = [idx2lab[l] for ex in all_labels for l in ex]
-
-    # Compute real F1 score
-    precision, recall, f1, _ = precision_recall_fscore_support(
-        flat_labels, flat_preds, labels=CLASSES[1:], average="micro"
-    )
-    pprint(dict(precision=precision, recall=recall, f1=f1))
-    df = pd.DataFrame({"preds": flat_preds, "labels": flat_labels})
-    return df, {"precision": precision, "recall": recall, "f1": f1}
 
 
 @click.group("cli")
