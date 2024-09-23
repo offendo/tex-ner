@@ -13,7 +13,7 @@ mkdir -p "/volume/ner/outputs/$RUN_NAME"
 # Run training
 export WANDB_RUN_NAME="$RUN_NAME"
 python src/ner_training/main.py train \
-    --model witiko/mathberta \
+    --model FacebookAI/roberta-base \
     --crf \
     --definition --theorem --proof --example \
     --steps 1500 \
@@ -24,14 +24,14 @@ python src/ner_training/main.py train \
     --dropout 0.2 \
     --weight_decay 6e-4 \
     --scheduler "inverse_sqrt" \
-    --data_dir /volume/ner/ \
+    --data_dir /volume/ner/roberta-base \
     --output_dir /volume/ner/outputs/$RUN_NAME \
 
 # Run testing
 python src/ner_training/main.py test \
-    --model witiko/mathberta \
+    --model FacebookAI/roberta-base \
     --crf \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     --definition --theorem --proof --example \
-    --data_dir /volume/ner \
+    --data_dir /volume/ner/roberta-base \
     --output_dir /volume/ner/outputs/$RUN_NAME

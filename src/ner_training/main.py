@@ -252,7 +252,8 @@ def _load_file(
     if strip_bio_prefix:
         tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
 
-    special_tokens = set(map(tokenizer.convert_tokens_to_ids, tokenizer.special_tokens_map.values()))
+    specials = list(flatten(tokenizer.special_tokens_map.values()))
+    special_tokens = set(map(tokenizer.convert_tokens_to_ids, specials))
 
     # Add an empty tag for the <s> or </s> tokens
     if tokens.input_ids[0] in special_tokens:
