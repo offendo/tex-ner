@@ -6,7 +6,6 @@ dist/
 wheels/
 *.egg-info
 
-# venv
 .venv
 /runs/
 /wandb/
@@ -14,3 +13,6 @@ wheels/
 /.old/
 /checkpoint-final/
 /debug/
+/results/
+/configs/
+*.yaml
