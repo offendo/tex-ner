@@ -246,7 +246,7 @@ def _load_file(
 
     # Tokenize the data from the file
     tokens = tokenizer(tex)
-    logging.debug(f"Tokenized file into {len(tokens['input_ids'])} tokens.")
+    logging.debug(f"Tokenized file into {len(tokens.input_ids)} tokens.")
 
     tags = [tags for text, tags in iob_tags]
     if strip_bio_prefix:
