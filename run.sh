@@ -17,11 +17,11 @@ python src/ner_training/main.py train \
     --crf \
     --definition --theorem --proof --example \
     --steps 1500 \
-    --learning_rate 1e-5 \
+    --learning_rate 1.4e-5 \
     --batch_size 16 \
-    --label_smoothing_factor 0.10 \
+    --label_smoothing_factor 0.07 \
     --warmup_ratio 0.05 \
-    --dropout 0.3 \
+    --dropout 0.1 \
     --weight_decay 6e-4 \
     --scheduler "inverse_sqrt" \
     --data_dir /volume/ner/roberta-base \
