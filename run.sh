@@ -32,6 +32,6 @@ python src/ner_training/main.py test \
     --model FacebookAI/roberta-base \
     --crf \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
-    --definition --theorem --proof --example \
+    --definition --theorem --proof \
     --data_dir /volume/ner/roberta-base \
     --output_dir /volume/ner/outputs/$RUN_NAME
