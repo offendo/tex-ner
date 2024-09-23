@@ -15,7 +15,7 @@ export WANDB_RUN="$RUN_NAME"
 python src/ner_training/main.py train \
     --model FacebookAI/roberta-base \
     --crf \
-    --definition --theorem --proof --example \
+    --definition --theorem --proof \
     --steps 1500 \
     --learning_rate 1.4e-5 \
     --batch_size 32 \
