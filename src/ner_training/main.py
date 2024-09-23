@@ -246,13 +246,13 @@ def _load_file(
 
     # Tokenize the data from the file
     tokens = tokenizer(tex)
-    logging.debug(f"Tokenized file into {len(tokens)} tokens.")
+    logging.debug(f"Tokenized file into {len(tokens['input_ids'])} tokens.")
 
     tags = [tags for text, tags in iob_tags]
     if strip_bio_prefix:
         tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
 
-    specials = list(flatten(tokenizer.special_tokens_map.values()))
+    specials = list(tokenizer.special_tokens_map.values())
     special_tokens = set(map(tokenizer.convert_tokens_to_ids, specials))
 
     # Add an empty tag for the <s> or </s> tokens
