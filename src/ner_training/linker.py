@@ -128,7 +128,7 @@ class AutoLinker:
 
         # If we found one (or if we found multiple, the shortest one), then link it
         if target is not None:
-            toggle_link(name, guess, force_enable=True)
+            toggle_link(name, target, force_enable=True)
             return True
 
         # Otherwise give up
