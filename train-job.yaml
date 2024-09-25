@@ -24,7 +24,9 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: "no-examples"
+              value: "no-examples-2"
+            - name: CLASSES
+              value: "--definition"
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
