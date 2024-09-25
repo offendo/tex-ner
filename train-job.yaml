@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train
+  name: nilay-ner-proofs
 spec:
   template:
     spec:
@@ -24,9 +24,9 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: "no-examples-2"
+              value: only-proofs
             - name: CLASSES
-              value: "--definition"
+              value: "--definition --theorem --proof --example"
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
