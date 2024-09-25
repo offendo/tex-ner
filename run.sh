@@ -28,7 +28,7 @@ python src/ner_training/main.py train \
     --dropout 0.2 \
     --weight_decay 6e-4 \
     --scheduler "inverse_sqrt" \
-    --data_dir /volume/ner/roberta-base \
+    --data_dir /volume/ner/$DATASET \
     --output_dir /volume/ner/outputs/$RUN_NAME
 
 # Run testing
@@ -37,5 +37,5 @@ python src/ner_training/main.py test \
     --crf \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     $CLASSES \
-    --data_dir /volume/ner/roberta-base \
+    --data_dir /volume/ner/$DATASET \
     --output_dir /volume/ner/outputs/$RUN_NAME

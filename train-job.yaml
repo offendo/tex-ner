@@ -27,6 +27,8 @@ spec:
               value: only-proofs
             - name: CLASSES
               value: "--definition --theorem --proof --example"
+            - name: DATASET
+              value: roberta-base-semitight
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
