@@ -19,7 +19,7 @@ export WANDB_RUN="$RUN_NAME"
 python src/ner_training/main.py train \
     --model FacebookAI/roberta-base \
     --crf \
-    --definition --theorem --proof --example \
+    --definition --theorem --proof \
     --steps 1500 \
     --learning_rate 1.4e-5 \
     --batch_size 32 \
@@ -37,7 +37,7 @@ python src/ner_training/main.py test \
     --model FacebookAI/roberta-base \
     --crf \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
-    --definition --theorem --proof --example \
+    --definition --theorem --proof \
     --data_dir /volume/ner/roberta-base \
     --output_dir /volume/ner/outputs/$RUN_NAME \
     --examples_as_theorems
