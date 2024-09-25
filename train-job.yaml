@@ -22,6 +22,9 @@ spec:
       containers:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
+          env:
+            - name: RUN_NAME
+              value: "no-examples"
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
