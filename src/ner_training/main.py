@@ -235,6 +235,7 @@ def _load_file(
     tokenizer: PreTrainedTokenizer,
     context_len: int = -1,
     strip_bio_prefix: bool = True,
+    examples_as_theorems: bool = False,
 ):
     # Load the data
     with open(path, "r") as f:
@@ -251,6 +252,8 @@ def _load_file(
     tags = [tags for text, tags in iob_tags]
     if strip_bio_prefix:
         tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
+    if examples_as_theorems:
+        tags = [[t.replace("example", "theorem") for t in tag] for tag in tags]
 
     specials = list(tokenizer.special_tokens_map.values())
     special_tokens = set(map(tokenizer.convert_tokens_to_ids, specials))
@@ -290,6 +293,7 @@ def load_data(
     label2id: dict[str, int],
     context_len: int,
     strip_bio_prefix: bool = True,
+    examples_as_theorems: bool = False
 ):
     train_dir = Path(data_dir, "train")
     test_dir = Path(data_dir, "test")
@@ -307,6 +311,7 @@ def load_data(
             tokenizer=tokenizer,
             context_len=context_len,
             strip_bio_prefix=strip_bio_prefix,
+            examples_as_theorems=examples_as_theorems,
         )
         train.extend(examples)
     logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
@@ -319,6 +324,7 @@ def load_data(
             tokenizer=tokenizer,
             context_len=context_len,
             strip_bio_prefix=strip_bio_prefix,
+            examples_as_theorems=examples_as_theorems,
         )
         val.extend(examples)
     logging.info(f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files).")
@@ -331,6 +337,7 @@ def load_data(
             tokenizer=tokenizer,
             context_len=context_len,
             strip_bio_prefix=strip_bio_prefix,
+            examples_as_theorems=examples_as_theorems,
         )
         test.extend(examples)
     logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
@@ -418,6 +425,7 @@ def cli():
 @click.option("--debug", is_flag=True)
 @click.option("--use_class_weights", is_flag=True)
 @click.option("--randomize_last_layer", is_flag=True)
+@click.option("--examples_as_theorems", is_flag=True)
 def train(
     model: str,
     crf: bool,
@@ -442,6 +450,7 @@ def train(
     debug: bool,
     use_class_weights: bool,
     randomize_last_layer: bool,
+    examples_as_theorems: bool,
 ):
     class_names = tuple(
         k
@@ -473,7 +482,7 @@ def train(
                     torch.nn.init.xavier_normal_(param)
 
     # Data loading
-    data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id)
+    data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id, examples_as_theorems=examples_as_theorems)
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
     # Build the trainer
@@ -541,6 +550,7 @@ def train(
 @click.option("--overlap_len", default=512, type=int)
 @click.option("--batch_size", default=8)
 @click.option("--debug", is_flag=True)
+@click.option("--examples_as_theorems", is_flag=True)
 def test(
     model: str,
     crf: bool,
@@ -557,6 +567,7 @@ def test(
     output_dir: Path,
     batch_size: int,
     debug: bool,
+    examples_as_theorems: bool,
 ):
     class_names = tuple(
         k
@@ -578,7 +589,7 @@ def test(
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     # Data loading
-    data = load_data(data_dir, label2id=label2id, tokenizer=tokenizer, context_len=context_len)
+    data = load_data(data_dir, label2id=label2id, tokenizer=tokenizer, context_len=context_len, examples_as_theorems=examples_as_theorems)
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
     args = TrainingArguments(
@@ -623,6 +634,7 @@ def test(
 @click.option("--logging_steps", default=10)
 @click.option("--trials", default=50)
 @click.option("--debug", is_flag=True)
+@click.option("--examples_as_theorems", is_flag=True)
 def tune(
     model: str,
     crf: bool,
@@ -639,6 +651,7 @@ def tune(
     trials: int,
     logging_steps: int,
     debug: bool,
+    examples_as_theorems: bool,
 ):
     class_names = tuple(
         k
@@ -672,7 +685,7 @@ def tune(
 
     # Data loading
     tokenizer = AutoTokenizer.from_pretrained(model)
-    data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id)
+    data = load_data(data_dir, tokenizer, context_len=context_len, label2id=label2id, examples_as_theorems=examples_as_theorems)
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
     args = TrainingArguments(
         disable_tqdm=True,

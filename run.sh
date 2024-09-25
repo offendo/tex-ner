@@ -26,6 +26,7 @@ python src/ner_training/main.py train \
     --scheduler "inverse_sqrt" \
     --data_dir /volume/ner/roberta-base \
     --output_dir /volume/ner/outputs/$RUN_NAME \
+    --examples_as_theorems
 
 # Run testing
 python src/ner_training/main.py test \
@@ -34,4 +35,5 @@ python src/ner_training/main.py test \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     --definition --theorem --proof --example \
     --data_dir /volume/ner/roberta-base \
-    --output_dir /volume/ner/outputs/$RUN_NAME
+    --output_dir /volume/ner/outputs/$RUN_NAME \
+    --examples_as_theorems
