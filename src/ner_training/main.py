@@ -253,7 +253,7 @@ def _load_file(
     if strip_bio_prefix:
         tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
     if examples_as_theorems:
-        tags = [[t.replace("example", "theorem") for t in tag] for tag in tags]
+        tags = [list(set([t.replace("example", "theorem") for t in tag])) for tag in tags]
 
     specials = list(tokenizer.special_tokens_map.values())
     special_tokens = set(map(tokenizer.convert_tokens_to_ids, specials))
