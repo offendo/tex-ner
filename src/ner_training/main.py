@@ -677,6 +677,7 @@ def tune(
             "weight_decay": ray.tune.loguniform(1e-6, 1e-3),
             "lr_scheduler_type": ray.tune.choice(["linear", "cosine", "inverse_sqrt"]),
             "label_smoothing_factor": ray.tune.uniform(0.0, 0.1),
+            "dropout": ray.tune.uniform(0.0, 0.5),
         }
 
     def make_model_init(*args, **kwargs):
@@ -684,6 +685,9 @@ def tune(
             return load_model(*args, **kwargs)
 
         return model_init
+
+    def compute_objective(metrics: dict[str, float]):
+        return metrics['eval_f1']
 
     # Data loading
     tokenizer = AutoTokenizer.from_pretrained(model)
@@ -715,6 +719,7 @@ def tune(
     )
     best_trial = trainer.hyperparameter_search(
         direction="maximize",
+        compute_objective=,
         backend="ray",
         hp_space=raytune_hp_space,
         n_trials=trials,

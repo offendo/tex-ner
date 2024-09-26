@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner
+  name: nilay-ner-train
 spec:
   template:
     spec:
@@ -24,11 +24,25 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: new-data
+              value: new-data-3
             - name: CLASSES
               value: "--definition --theorem --proof --example"
             - name: DATASET
               value: roberta-base-semitight
+            - name: LEARNING_RATE
+              value: "1.4e-5"
+            - name: BATCH_SIZE
+              value: "32"
+            - name: LABEL_SMOOTHING
+              value: "0.07"
+            - name: WARMUP_RATIO
+              value: "0.05"
+            - name: DROPOUT
+              value: "0.2"
+            - name: WEIGHT_DECAY
+              value: "6e-4"
+            - name: SCHEDULER
+              value: "inverse_sqrt"
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:

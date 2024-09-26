@@ -15,7 +15,7 @@ export WANDB_RUN_NAME="$RUN_NAME"
 python src/ner_training/main.py tune \
     --model FacebookAI/roberta-base \
     --definition --theorem --proof --example \
-    --steps 1500 \
+    --steps 1000 \
     --trials 50 \
     --data_dir /volume/ner/ \
     --output_dir /volume/ner/outputs/$RUN_NAME \
