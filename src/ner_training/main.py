@@ -719,7 +719,7 @@ def tune(
     )
     best_trial = trainer.hyperparameter_search(
         direction="maximize",
-        compute_objective=,
+        compute_objective=compute_objective,
         backend="ray",
         hp_space=raytune_hp_space,
         n_trials=trials,
