@@ -605,17 +605,19 @@ def test(
         train_dataset=data["train"],
         compute_metrics=compute_metrics,
     )
-    logits, labels, metrics = trainer.predict(data["test"])  # type:ignore
-    logging.info(pformat(metrics))
-    preds = np.argmax(logits, axis=-1)
+    # Run eval on 'test' and 'val'
+    for split in ['test', 'val']:
+        logits, labels, metrics = trainer.predict(data["val"])  # type:ignore
+        logging.info(pformat(metrics))
+        preds = np.argmax(logits, axis=-1)
 
-    output = {
-        "labels": [[id2label[l] for l in ll if l != PAD_TOKEN_ID] for ll in labels],
-        "preds": [[id2label[p] for p, l in zip(pp, ll) if l != PAD_TOKEN_ID] for pp, ll in zip(preds, labels)],
-        "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["test"]["input_ids"]],
-    }
-    test_df = pd.DataFrame(output)
-    test_df.to_json(Path(output_dir, "preds.json"))
+        output = {
+            "labels": [[id2label[l] for l in ll if l != PAD_TOKEN_ID] for ll in labels],
+            "preds": [[id2label[p] for p, l in zip(pp, ll) if l != PAD_TOKEN_ID] for pp, ll in zip(preds, labels)],
+            "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["val"]["input_ids"]],
+        }
+        test_df = pd.DataFrame(output)
+        test_df.to_json(Path(output_dir, f"{split}.preds.json"))
 
 
 @click.command()
