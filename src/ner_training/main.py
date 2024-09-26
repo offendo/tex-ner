@@ -18,7 +18,6 @@ import torch.nn as nn
 import wandb
 from datasets import Dataset, DatasetDict
 from more_itertools import chunked, flatten
-from safetensors import safe_open
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.utils.class_weight import compute_class_weight
@@ -374,6 +373,7 @@ def load_model(
     logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
     if checkpoint is not None:
         state_dict = {}
+        from safetensors import safe_open
         with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
             for k in file.keys():
                 state_dict[k] = file.get_tensor(k)
