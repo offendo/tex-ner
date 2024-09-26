@@ -21,13 +21,13 @@ python src/ner_training/main.py train \
     --crf \
     $CLASSES \
     --steps 1500 \
-    --learning_rate 1.5e-5 \
-    --batch_size 32 \
-    --label_smoothing_factor 0.07 \
-    --warmup_ratio 0.05 \
-    --dropout 0.2 \
-    --weight_decay 6e-4 \
-    --scheduler "cosine" \
+    --learning_rate $LEARNING_RATE \
+    --batch_size $BATCH_SIZE \
+    --label_smoothing_factor $LABEL_SMOOTHING \
+    --warmup_ratio $WARMUP_RATIO \
+    --dropout $DROPOUT \
+    --weight_decay $WEIGHT_DECAY \
+    --scheduler $SCHEDULER \
     --data_dir /volume/ner/$DATASET \
     --output_dir /volume/ner/outputs/$RUN_NAME
 
