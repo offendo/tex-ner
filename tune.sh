@@ -17,5 +17,5 @@ python src/ner_training/main.py tune \
     --definition --theorem --proof --example \
     --steps 1000 \
     --trials 50 \
-    --data_dir /volume/ner/ \
+    --data_dir /volume/ner/roberta-base-semitight \
     --output_dir /volume/ner/outputs/$RUN_NAME \

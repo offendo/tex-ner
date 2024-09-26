@@ -24,7 +24,7 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: new-data-3
+              value: new-data-4
             - name: CLASSES
               value: "--definition --theorem --proof --example"
             - name: DATASET
