@@ -24,25 +24,25 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: new-data-4
+              value: new-data-post-tuning
             - name: CLASSES
               value: "--definition --theorem --proof --example"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE
-              value: "1.4e-5"
+              value: "0.00007411299781083247"
             - name: BATCH_SIZE
-              value: "32"
+              value: "8"
             - name: LABEL_SMOOTHING
-              value: "0.07"
+              value: "0.03251833220267471"
             - name: WARMUP_RATIO
-              value: "0.05"
+              value: "0.009541011649041132"
             - name: DROPOUT
-              value: "0.2"
+              value: "0.0"
             - name: WEIGHT_DECAY
-              value: "6e-4"
+              value: "0.00001295551724066219"
             - name: SCHEDULER
-              value: "inverse_sqrt"
+              value: "cosine"
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
