@@ -20,7 +20,7 @@ python src/ner_training/main.py train \
     --model FacebookAI/roberta-base \
     --crf \
     $CLASSES \
-    --steps 1500 \
+    --steps 1000 \
     --learning_rate $LEARNING_RATE \
     --batch_size $BATCH_SIZE \
     --label_smoothing_factor $LABEL_SMOOTHING \
