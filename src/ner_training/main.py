@@ -682,7 +682,11 @@ def tune(
 
     def make_model_init(*args, **kwargs):
         def model_init(trial):
-            return load_model(*args, dropout=trial['dropout'], **kwargs)
+            try:
+                dropout = trial['dropout']
+            except Exception as e:
+                dropout = 0.0
+            return load_model(*args, dropout=dropout, **kwargs)
 
         return model_init
 
