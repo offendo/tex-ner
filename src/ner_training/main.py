@@ -37,7 +37,7 @@ from transformers import (
 )
 from transformers.modeling_outputs import TokenClassifierOutput
 
-from ner_training.namer import create_name_or_ref_tags
+from src.ner_training.namer import create_name_or_ref_tags
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
