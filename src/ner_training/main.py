@@ -271,15 +271,16 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
     defs_and_thms = data[data.tag.isin(["theorem", "definition"])]
     records = []
     for idx, outer in defs_and_thms.iterrows():
-        inner = data[(data.fileid == outer.fileid) & (data.start >= outer.start) & (data.end <= outer.end)]
+        inner = data[(data.fileid == outer.fileid) & (data.start >= outer.start) & (data.end <= outer.end) & (data.tag == tag)]
         for i, row in inner.iterrows():
             new_start = row.start - outer.start
             new_end = row.end - outer.start
             tags = [
                 (
                     f"B-{tag}"
-                    if row.tag == tag and i == new_start
-                    else f"I-{tag}" if (new_start <= i <= new_end and row.tag == tag) else "O"
+                    if i == new_start
+                    else f"I-{tag}" if (new_start <= i <= new_end) 
+                    else "O"
                 )
                 for i in range(len(outer.text))
             ]
