@@ -681,6 +681,7 @@ def train(
 @click.option("--batch_size", default=8)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
+@click.option("--name_or_ref_only", type=click.Choice(["name", "ref"]), default=None)
 def test(
     model: str,
     crf: bool,
@@ -698,6 +699,7 @@ def test(
     batch_size: int,
     debug: bool,
     examples_as_theorems: bool,
+    name_or_ref_only: str,
 ):
     class_names = tuple(
         k
@@ -725,6 +727,7 @@ def test(
         tokenizer=tokenizer,
         context_len=context_len,
         examples_as_theorems=examples_as_theorems,
+        name_or_ref_only=name_or_ref_only,
     )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
