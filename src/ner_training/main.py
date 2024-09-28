@@ -730,7 +730,7 @@ def test(
         tokenizer=tokenizer,
         context_len=context_len,
         examples_as_theorems=examples_as_theorems,
-        name_or_ref_only=name_or_ref_only,
+        name_or_ref=name_or_ref_only,
     )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
