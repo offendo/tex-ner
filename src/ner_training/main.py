@@ -712,8 +712,9 @@ def test(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name,
-            reference=reference,
+            name=name or name_or_ref_only == "name",
+            reference=reference or name_or_ref_only == "reference",
+            both=name_or_ref_only == "both",
         ).items()
         if v
     )

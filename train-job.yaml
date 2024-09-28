@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-name-no-crf
+  name: nilay-ner-train-name-ref
 spec:
   template:
     spec:
@@ -32,7 +32,7 @@ spec:
             - name: TRAIN_FLAGS
               value: "--steps 1000 --name_or_ref_only=both --use_class_weights"
             - name: DATASET
-              value: roberta-base-semitight
+              value: roberta-base-refs
             - name: LEARNING_RATE
               value: "0.00007411299781083247"
             - name: BATCH_SIZE
