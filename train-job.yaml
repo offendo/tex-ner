@@ -24,13 +24,13 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: name-only
+              value: names-and-refs
             - name: CRF
               value: ""
             - name: CLASSES
               value: "--name"
             - name: TRAIN_FLAGS
-              value: "--steps 1000 --name_or_ref_only=name --use_class_weights"
+              value: "--steps 1000 --name_or_ref_only=both --use_class_weights"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE

@@ -271,17 +271,17 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
     defs_and_thms = data[data.tag.isin(["theorem", "definition"])]
     records = []
     for idx, outer in defs_and_thms.iterrows():
-        inner = data[(data.fileid == outer.fileid) & (data.start >= outer.start) & (data.end <= outer.end) & (data.tag == tag)]
+        inner = data[
+            (data.fileid == outer.fileid)
+            & (data.start >= outer.start)
+            & (data.end <= outer.end)
+            & (data.tag.isin(["name", "reference"]) if tag == "both" else data.tag == tag)
+        ]
         for i, row in inner.iterrows():
             new_start = row.start - outer.start
             new_end = row.end - outer.start
             tags = [
-                (
-                    f"B-{tag}"
-                    if i == new_start
-                    else f"I-{tag}" if (new_start <= i <= new_end) 
-                    else "O"
-                )
+                (f"B-{tag}" if i == new_start else f"I-{tag}" if (new_start <= i <= new_end) else "O")
                 for i in range(len(outer.text))
             ]
             tokens = tokenizer(outer.text)
@@ -298,7 +298,7 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
     return pd.DataFrame.from_records(records)
 
 
-def load_file_names_only(
+def load_file_name_or_ref_only(
     path: str | Path,
     name_or_ref: str,
     label2id: dict[str, int],
@@ -353,7 +353,7 @@ def load_file(
     name_or_ref: Optional[str] = None,
 ):
     if name_or_ref is not None:
-        return load_file_names_only(path, name_or_ref, label2id, tokenizer, context_len, strip_bio_prefix)
+        return load_file_name_or_ref_only(path, name_or_ref, label2id, tokenizer, context_len, strip_bio_prefix)
 
     # Load the data
     with open(path, "r") as f:
@@ -550,7 +550,7 @@ def cli():
 @click.option("--use_class_weights", is_flag=True)
 @click.option("--randomize_last_layer", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref_only", type=click.Choice(["name", "ref"]), default=None)
+@click.option("--name_or_ref_only", type=click.Choice(["name", "ref", "both"]), default=None)
 def train(
     model: str,
     crf: bool,
@@ -585,8 +585,9 @@ def train(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name,
-            reference=reference,
+            name=name or name_or_ref_only == "name",
+            reference=reference or name_or_ref_only == "reference",
+            both=name_or_ref_only == "both",
         ).items()
         if v
     )
@@ -684,7 +685,7 @@ def train(
 @click.option("--batch_size", default=8)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref_only", type=click.Choice(["name", "ref"]), default=None)
+@click.option("--name_or_ref_only", type=click.Choice(["name", "ref", "both"]), default=None)
 def test(
     model: str,
     crf: bool,
@@ -716,6 +717,7 @@ def test(
         ).items()
         if v
     )
+
     label2id = create_multiclass_labels(class_names)
     id2label = {v: k for k, v in label2id.items()}
     ner_model = load_model(
