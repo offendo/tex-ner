@@ -277,6 +277,11 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
             & (data.end <= outer.end)
             & (data.tag.isin(["name", "reference"]) if tag == "both" else data.tag == tag)
         ]
+
+        # Now we need to merge all the examples
+        current_records = []
+        tex = outer.text
+        tokens = tokenizer(outer.text)
         for i, row in inner.iterrows():
             new_start = row.start - outer.start
             new_end = row.end - outer.start
@@ -284,17 +289,19 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
                 (f"B-{tag}" if i == new_start else f"I-{tag}" if (new_start <= i <= new_end) else "O")
                 for i in range(len(outer.text))
             ]
-            tokens = tokenizer(outer.text)
             aligned_tags = align_annotations_to_tokens(tokens, tags)
-            records.append(
-                {
-                    "tex": outer.text,
-                    "start": new_start,
-                    "end": new_end,
-                    "tags": aligned_tags,
-                    "tokens": tokens["input_ids"],
-                }
-            )
+            current_records.append(aligned_tags)
+
+        if not current_records:
+            continue
+
+        merged_tags = []
+        for tags_at_idx in zip(*current_records):
+            tags = list(set(flatten(tags_at_idx)))
+            merged_tags.append(tags)
+
+        records.append({"tex": tex, "tokens": tokens, "tags": merged_tags})
+
     return pd.DataFrame.from_records(records)
 
 
@@ -334,6 +341,8 @@ def load_file_name_or_ref_only(
         n_labels = len(tokens["labels"])  # type:ignore
         n_tokens = len(tokens["input_ids"])  # type:ignore
         assert n_labels == n_tokens, f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
+
+        example = []
 
         for idx in range(math.ceil(n_tokens / context_len)):
             labels = tokens.labels[idx * context_len : (idx + 1) * context_len]
