@@ -193,6 +193,8 @@ class CRFTrainer(Trainer):
     def __init__(self, *args, class_weights: torch.Tensor | None = None, crf: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.class_weights = class_weights.to(self.model.bert.device) if class_weights is not None else None
+        if class_weights is not None:
+            logging.info(f"Using class weights: {class_weights}")
         self.crf = crf
 
     def compute_loss(self, model, inputs, return_outputs=False):
