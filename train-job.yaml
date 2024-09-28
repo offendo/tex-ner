@@ -28,9 +28,9 @@ spec:
             - name: CRF
               value: ""
             - name: CLASSES
-              value: "--name"
+              value: "--name_or_ref_only=both"
             - name: TRAIN_FLAGS
-              value: "--steps 1000 --name_or_ref_only=both --use_class_weights"
+              value: "--steps 1000 --use_class_weights"
             - name: DATASET
               value: roberta-base-refs
             - name: LEARNING_RATE

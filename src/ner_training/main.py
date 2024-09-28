@@ -47,7 +47,7 @@ metric = evaluate.combine([f1_metric, precision_metric, recall_metric])
 
 PAD_TOKEN_ID = -100
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 logging.info(f"Running on device: {DEVICE}")
 
