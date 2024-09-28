@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train
+  name: nilay-ner-train-name
 spec:
   template:
     spec:
@@ -24,9 +24,9 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: new-data-post-tuning
+              value: name-only
             - name: CLASSES
-              value: "--definition --theorem --proof --example"
+              value: "--name --name_or_ref_only=name"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE
@@ -48,7 +48,7 @@ spec:
           volumeMounts:
             - name: git-repo
               mountPath: /app
-            - name: nilay-data-volume-rwm-central
+            - name: nilay-data-volume-rwm-east
               mountPath: /volume
             - name: api-tokens
               mountPath: /etc/api-tokens
@@ -94,7 +94,7 @@ spec:
               memory: 4Gi
               cpu: 1
           volumeMounts:
-            - name: nilay-data-volume-rwm-central
+            - name: nilay-data-volume-rwm-east
               mountPath: /volume
       securityContext:
         fsGroup: 101
@@ -105,9 +105,9 @@ spec:
           secret:
             defaultMode: 0400
             secretName: nilay-git-creds
-        - name: nilay-data-volume-rwm-central
+        - name: nilay-data-volume-rwm-east
           persistentVolumeClaim:
-            claimName: nilay-data-volume-rwm-central
+            claimName: nilay-data-volume-rwm-east
         - name: api-tokens
           secret:
             defaultMode: 0400

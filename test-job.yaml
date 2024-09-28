@@ -34,7 +34,7 @@ spec:
           volumeMounts:
             - name: git-repo
               mountPath: /app
-            - name: nilay-data-volume-rwm-central
+            - name: nilay-data-volume-rwm-east
               mountPath: /volume
             - name: api-tokens
               mountPath: /etc/api-tokens
@@ -80,7 +80,7 @@ spec:
               memory: 4Gi
               cpu: 1
           volumeMounts:
-            - name: nilay-data-volume-rwm-central
+            - name: nilay-data-volume-rwm-east
               mountPath: /volume
       securityContext:
         fsGroup: 101
@@ -91,9 +91,9 @@ spec:
           secret:
             defaultMode: 0400
             secretName: nilay-git-creds
-        - name: nilay-data-volume-rwm-central
+        - name: nilay-data-volume-rwm-east
           persistentVolumeClaim:
-            claimName: nilay-data-volume-rwm-central
+            claimName: nilay-data-volume-rwm-east
         - name: api-tokens
           secret:
             defaultMode: 0400
