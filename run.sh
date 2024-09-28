@@ -18,7 +18,9 @@ mkdir -p "/volume/ner/outputs/$RUN_NAME"
 export WANDB_RUN="$RUN_NAME"
 python src/ner_training/main.py train \
     --model FacebookAI/roberta-base \
-    $FLAGS \
+    $CRF \
+    $CLASSES \
+    $TRAIN_FLAGS \
     --learning_rate $LEARNING_RATE \
     --batch_size $BATCH_SIZE \
     --label_smoothing_factor $LABEL_SMOOTHING \
@@ -27,12 +29,13 @@ python src/ner_training/main.py train \
     --weight_decay $WEIGHT_DECAY \
     --scheduler $SCHEDULER \
     --data_dir /volume/ner/$DATASET \
-    --output_dir /volume/ner/outputs/$RUN_NAME
+    --output_dir /volume/ner/outputs/$RUN_NAME \
 
 # Run testing
 python src/ner_training/main.py test \
     --model FacebookAI/roberta-base \
-    $FLAGS \
+    $CRF \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
+    $CLASSES \
     --data_dir /volume/ner/$DATASET \
     --output_dir /volume/ner/outputs/$RUN_NAME
