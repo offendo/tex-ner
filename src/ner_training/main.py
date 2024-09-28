@@ -506,18 +506,30 @@ def load_model(
     return model
 
 
-def compute_metrics(eval_out: EvalPrediction):
-    logits, labels = eval_out
-    assert isinstance(labels, np.ndarray)
+def make_compute_metrics(label2id):
+    def compute_metrics(eval_out: EvalPrediction):
+        logits, labels = eval_out
+        assert isinstance(labels, np.ndarray)
 
-    preds = np.argmax(logits, axis=-1)
-    metrics = metric.compute(
-        references=labels.ravel(),
-        predictions=preds.ravel(),
-        labels=list(range(1, np.max(labels))),
-        average="micro",
-    )
-    return metrics
+        classes = [cls for cls in label2id.values() if cls != 0]
+
+        preds = np.argmax(logits, axis=-1)
+        if np.max(labels) == 1:
+            metrics = metric.compute(
+                references=labels.ravel(),
+                predictions=preds.ravel(),
+                average="binary",
+            )
+        else:
+            metrics = metric.compute(
+                references=labels.ravel(),
+                predictions=preds.ravel(),
+                labels=classes,
+                average="micro",
+            )
+        return metrics
+
+    return compute_metrics
 
 
 @click.group("cli")
@@ -660,7 +672,7 @@ def train(
         data_collator=collator,
         train_dataset=data["train"],
         eval_dataset=data["val"],
-        compute_metrics=compute_metrics,
+        compute_metrics=make_compute_metrics(label2id),
         class_weights=class_weights,
     )
 
@@ -748,7 +760,7 @@ def test(
         args=args,
         data_collator=collator,
         train_dataset=data["train"],
-        compute_metrics=compute_metrics,
+        compute_metrics=make_compute_metrics(label2id),
     )
     # Run eval on 'test' and 'val'
     for split in ["test", "val"]:
@@ -863,7 +875,7 @@ def tune(
         args=args,
         train_dataset=data["train"],
         eval_dataset=data["val"],
-        compute_metrics=compute_metrics,
+        compute_metrics=make_compute_metrics(label2id),
         tokenizer=tokenizer,
         model_init=make_model_init(model, label2id=label2id, debug=debug, crf=crf, context_len=context_len),
         data_collator=collator,
