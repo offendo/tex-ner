@@ -30,7 +30,7 @@ if [[ $DO_TRAIN = 'true' ]]; then
     --weight_decay $WEIGHT_DECAY \
     --scheduler $SCHEDULER \
     --data_dir /volume/ner/$DATASET \
-    --output_dir /volume/ner/outputs/$RUN_NAME \
+    --output_dir /volume/ner/outputs/$RUN_NAME
 fi
 
 # Run testing
