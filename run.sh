@@ -16,7 +16,8 @@ mkdir -p "/volume/ner/outputs/$RUN_NAME"
 
 # Run training
 export WANDB_RUN="$RUN_NAME"
-python src/ner_training/main.py train \
+if [[ $DO_TRAIN = 'true' ]]; then
+  python src/ner_training/main.py train \
     --model FacebookAI/roberta-base \
     $CRF \
     $CLASSES \
@@ -30,6 +31,7 @@ python src/ner_training/main.py train \
     --scheduler $SCHEDULER \
     --data_dir /volume/ner/$DATASET \
     --output_dir /volume/ner/outputs/$RUN_NAME \
+fi
 
 # Run testing
 python src/ner_training/main.py test \

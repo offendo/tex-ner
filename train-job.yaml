@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-name-ref-5000
+  name: nilay-ner-train
 spec:
   template:
     spec:
@@ -24,13 +24,15 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: names-and-refs
+              value: names-and-refs-duplicate-refs
             - name: CRF
-              value: ""
+              value: "--crf"
             - name: CLASSES
-              value: "--name_or_ref_only=both"
+              value: "--name --reference --name_or_ref_only=both"
+            - name: DO_TRAIN
+              value: "false"
             - name: TRAIN_FLAGS
-              value: "--steps 5000 --use_class_weights"
+              value: "--steps 1500 --use_class_weights"
             - name: DATASET
               value: roberta-base-refs
             - name: LEARNING_RATE
