@@ -836,6 +836,7 @@ def test(
 @click.option("--example", is_flag=True)
 @click.option("--reference", is_flag=True)
 @click.option("--name", is_flag=True)
+@click.option("--use_class_weights", is_flag=True)
 @click.option("--context_len", default=512, type=int)
 @click.option("--steps", default=500)
 @click.option("--logging_steps", default=10)
@@ -852,6 +853,7 @@ def tune(
     example: bool,
     name: bool,
     reference: bool,
+    use_class_weights: bool,
     context_len: int,
     data_dir: Path,
     output_dir: Path,
