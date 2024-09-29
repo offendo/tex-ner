@@ -523,20 +523,14 @@ def make_compute_metrics(label2id):
         classes = [cls for cls in label2id.values() if cls != 0]
 
         preds = np.argmax(logits, axis=-1)
-        if np.max(labels) == 1:
-            metrics = metric.compute(
-                references=labels.ravel(),
-                predictions=preds.ravel(),
-                average="binary",
-            )
+        ls = [l for l in labels.ravel() if l != -100]
+        ps = [p for p, l in zip(preds.ravel(), labels.ravel()) if l != -100]
+
+        if len(label2id) == 2:
+            p, r, f, _ = precision_recall_fscore_support(ls, ps, average="binary", pos_label=1)
         else:
-            metrics = metric.compute(
-                references=labels.ravel(),
-                predictions=preds.ravel(),
-                labels=classes,
-                average="micro",
-            )
-        return metrics
+            p, r, f, _ = precision_recall_fscore_support(ls, ps, average="micro", labels=classes)
+        return dict(precision=p, recall=r, f1=f)
 
     return compute_metrics
 
@@ -739,8 +733,9 @@ def test(
         ).items()
         if v
     )
-
     label2id = create_multiclass_labels(class_names)
+    logging.info(f"Label map: {label2id}")
+
     id2label = {v: k for k, v in label2id.items()}
     ner_model = load_model(
         model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, checkpoint=checkpoint, dropout=0.0
