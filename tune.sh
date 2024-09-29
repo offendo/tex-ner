@@ -18,5 +18,5 @@ python src/ner_training/main.py tune \
     --use_class_weights \
     --steps 1500 \
     --trials 50 \
-    --data_dir /volume/ner/roberta-base-semitight \
+    --data_dir /volume/ner/roberta-base-refs \
     --output_dir /volume/ner/outputs/$RUN_NAME \
