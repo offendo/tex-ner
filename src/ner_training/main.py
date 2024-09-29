@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import re
 from pathlib import Path
 from pprint import pformat
 from typing import Callable, Iterable, Optional
@@ -280,12 +281,52 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
             & (data.end <= outer.end)
             & (data.tag.isin(["name", "reference"]) if tag == "both" else data.tag == tag)
         ]
+        assert isinstance(inner, pd.DataFrame)
+
+        def find_all(text, pattern):
+            start = 0
+            while True:
+                start = text.find(pattern, start)
+                if start == -1:
+                    return
+                yield start
+                start += len(pattern)  # use start += 1 to find overlapping matches
+
+        # Make sure the references are being repeated
+        copies = []
+        for idx, ref in inner[inner.tag == "reference"].iterrows():
+            if len(ref.text) == 1:
+                search_text = f" {ref.text.strip()} "
+            else:
+                search_text = ref.text
+            for start in find_all(outer.text, search_text):
+                # We have to offset the start index by the outer start index
+                # since we're subtracting the same offset in the next loop
+                start = start + outer.start
+                end = start + len(ref.text)
+                if start == ref.start:
+                    continue
+                other_tags = inner[
+                    ((inner.start <= start) & (start <= inner.end)) | ((inner.start <= end) & (end <= inner.end))
+                ]
+                if len(other_tags) > 0:
+                    continue
+                logging.debug(f"Adding a copy of {ref.text}")
+                copies.append(
+                    dict(
+                        start=start + outer.start,
+                        end=start + outer.start + len(ref.text),
+                        text=ref.text,
+                        tag="reference",
+                    )
+                )
+        merged = pd.concat([inner[["start", "end", "text", "tag"]], pd.DataFrame.from_records(copies)])
 
         # Now we need to merge all the examples
         current_records = []
         tex = outer.text
         tokens = tokenizer(outer.text)
-        for i, row in inner.iterrows():
+        for i, row in merged.iterrows():
             new_start = row.start - outer.start
             new_end = row.end - outer.start
             tags = [
