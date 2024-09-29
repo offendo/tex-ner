@@ -818,6 +818,7 @@ def test(
 
         output = {
             "labels": [[id2label[l] for l in ll if l != PAD_TOKEN_ID] for ll in labels],
+            "logits": [[p for p, l in zip(pp, ll) if l != PAD_TOKEN_ID] for pp, ll in zip(logits, labels)],
             "preds": [[id2label[p] for p, l in zip(pp, ll) if l != PAD_TOKEN_ID] for pp, ll in zip(preds, labels)],
             "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data[split]["input_ids"]],
         }
