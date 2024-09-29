@@ -221,6 +221,9 @@ def create_multiclass_labels(classes):
         labels.extend(new)
 
     labels = ["O"] + labels
+    for lab in labels:
+        if "name" in lab and "reference" in lab:
+            labels.remove(lab)
     return {lab: idx for idx, lab in enumerate(labels)}
 
 
