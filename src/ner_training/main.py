@@ -286,7 +286,7 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
             new_start = row.start - outer.start
             new_end = row.end - outer.start
             tags = [
-                (f"B-{tag}" if i == new_start else f"I-{tag}" if (new_start <= i <= new_end) else "O")
+                (f"B-{row.tag}" if i == new_start else f"I-{row.tag}" if (new_start <= i <= new_end) else "O")
                 for i in range(len(outer.text))
             ]
             aligned_tags = align_annotations_to_tokens(tokens, tags)
