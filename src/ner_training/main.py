@@ -842,6 +842,7 @@ def test(
 @click.option("--trials", default=50)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
+@click.option("--name_or_ref_only", type=click.Choice(["name", "ref", "both"]), default=None)
 def tune(
     model: str,
     crf: bool,
@@ -859,6 +860,7 @@ def tune(
     logging_steps: int,
     debug: bool,
     examples_as_theorems: bool,
+    name_or_ref_only: bool,
 ):
     class_names = tuple(
         k
@@ -867,8 +869,9 @@ def tune(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name,
-            reference=reference,
+            name=name or name_or_ref_only == "name",
+            reference=reference or name_or_ref_only == "reference",
+            both=name_or_ref_only == "both" and not name and not reference,
         ).items()
         if v
     )
@@ -883,6 +886,7 @@ def tune(
             "lr_scheduler_type": ray.tune.choice(["linear", "cosine", "inverse_sqrt"]),
             "label_smoothing_factor": ray.tune.uniform(0.0, 0.1),
             "dropout": ray.tune.uniform(0.0, 0.5),
+            "max_steps": ray.tune.uniform(500, 2000),
         }
 
     def make_model_init(*args, **kwargs):
@@ -907,7 +911,6 @@ def tune(
     args = TrainingArguments(
         disable_tqdm=True,
         output_dir=str(output_dir),
-        max_steps=steps,
         optim="adamw_torch",
         logging_strategy="steps",
         logging_steps=logging_steps,

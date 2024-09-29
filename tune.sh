@@ -14,8 +14,9 @@ mkdir -p "/volume/ner/outputs/$RUN_NAME"
 export WANDB_RUN_NAME="$RUN_NAME"
 python src/ner_training/main.py tune \
     --model FacebookAI/roberta-base \
-    --definition --theorem --proof --example \
-    --steps 1000 \
+    --name --reference --name_or_ref_only='both' \
+    --use_class_weights \
+    --steps 1500 \
     --trials 50 \
     --data_dir /volume/ner/roberta-base-semitight \
     --output_dir /volume/ner/outputs/$RUN_NAME \

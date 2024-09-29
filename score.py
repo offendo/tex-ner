@@ -26,10 +26,10 @@ def heatmap(
     show: bool,
 ):
     df = pd.read_json(predictions)
-    labels = [l for l in df.labels.explode().unique() if l != 'O']
+    labels = [l for l in df.labels.explode().unique()]
     fig = plt.figure(figsize=(10,10))
-    mat = confusion_matrix(df.labels.explode(), df.preds.explode(), labels=labels[1:], normalize=norm)
-    g = sns.heatmap(mat, xticklabels=labels[1:], yticklabels=labels[1:], square=True, annot=True, cbar=False)
+    mat = confusion_matrix(df.labels.explode(), df.preds.explode(), labels=labels, normalize=norm)
+    g = sns.heatmap(mat, xticklabels=labels, yticklabels=labels, square=True, annot=True, cbar=False)
     plt.savefig(output)
     if show:
         fig.show()
