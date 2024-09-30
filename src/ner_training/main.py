@@ -611,7 +611,7 @@ def cli():
 @click.option("--use_class_weights", is_flag=True)
 @click.option("--randomize_last_layer", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref", "-n", type=click.Choice(["name", "ref"]), default=None, multiple=True)
+@click.option("--name_or_ref", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 def train(
     model: str,
     crf: bool,
@@ -745,7 +745,7 @@ def train(
 @click.option("--batch_size", default=8)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref", "-n", type=click.Choice(["name", "ref"]), default=None, multiple=True)
+@click.option("--name_or_ref", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 def test(
     model: str,
     crf: bool,
@@ -844,7 +844,7 @@ def test(
 @click.option("--trials", default=50)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref", "-n", type=click.Choice(["name", "ref"]), default=None, multiple=True)
+@click.option("--name_or_ref", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 def tune(
     model: str,
     crf: bool,
