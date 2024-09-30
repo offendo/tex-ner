@@ -4,7 +4,6 @@ import json
 import logging
 import math
 import os
-import re
 from pathlib import Path
 from pprint import pformat
 from typing import Callable, Iterable, Optional
@@ -271,26 +270,29 @@ def align_annotations_to_tokens(tokens: BatchEncoding, char_tags: list[str]) -> 
     return aligned_tags
 
 
-def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedTokenizer):
-    defs_and_thms = data[data.tag.isin(["theorem", "definition"])]
+def create_name_or_ref_tags(
+    tags: list[str], data: pd.DataFrame, tokenizer: PreTrainedTokenizer, force_reference: bool = True
+):
+    defs_and_thms = data[data.tag.isin(["theorem", "definition", "example"])]
     records = []
     for idx, outer in defs_and_thms.iterrows():
         inner = data[
             (data.fileid == outer.fileid)
             & (data.start >= outer.start)
             & (data.end <= outer.end)
-            & (data.tag.isin(["name", "reference"]) if tag == "both" else data.tag == tag)
+            & (data.tag.isin(tags))
         ]
         assert isinstance(inner, pd.DataFrame)
 
         def find_all(text, pattern):
+            """Non-regex version of re.findall because I don't want patterns"""
             start = 0
             while True:
                 start = text.find(pattern, start)
                 if start == -1:
                     return
                 yield start
-                start += len(pattern)  # use start += 1 to find overlapping matches
+                start += len(pattern)
 
         # Make sure the references are being repeated
         copies = []
@@ -322,6 +324,9 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
                 )
         merged = pd.concat([inner[["start", "end", "text", "tag"]], pd.DataFrame.from_records(copies)])
 
+        if force_reference and (merged.tag == "reference").sum() == 0:
+            continue
+
         # Now we need to merge all the examples
         current_records = []
         tex = outer.text
@@ -329,29 +334,26 @@ def create_name_or_ref_tags(tag: str, data: pd.DataFrame, tokenizer: PreTrainedT
         for i, row in merged.iterrows():
             new_start = row.start - outer.start
             new_end = row.end - outer.start
-            tags = [
+            row_tags = [
                 (f"B-{row.tag}" if i == new_start else f"I-{row.tag}" if (new_start <= i <= new_end) else "O")
                 for i in range(len(outer.text))
             ]
-            aligned_tags = align_annotations_to_tokens(tokens, tags)
+            aligned_tags = align_annotations_to_tokens(tokens, row_tags)
             current_records.append(aligned_tags)
 
         if not current_records:
             continue
 
-        merged_tags = []
-        for tags_at_idx in zip(*current_records):
-            tags = list(set(flatten(tags_at_idx)))
-            merged_tags.append(tags)
+        merged_tags = [list(set(flatten(tags_at_idx))) for tags_at_idx in zip(*current_records)]
 
         records.append({"tex": tex, "tokens": tokens, "tags": merged_tags})
 
     return pd.DataFrame.from_records(records)
 
 
-def load_file_name_or_ref_only(
+def load_file_name_or_ref(
     path: str | Path,
-    name_or_ref: str,
+    name_or_ref: list[str],
     label2id: dict[str, int],
     tokenizer: PreTrainedTokenizer,
     context_len: int = -1,
@@ -403,10 +405,10 @@ def load_file(
     context_len: int = -1,
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
-    name_or_ref: Optional[str] = None,
+    name_or_ref: Optional[list[str]] = None,
 ):
     if name_or_ref is not None:
-        return load_file_name_or_ref_only(path, name_or_ref, label2id, tokenizer, context_len, strip_bio_prefix)
+        return load_file_name_or_ref(path, name_or_ref, label2id, tokenizer, context_len, strip_bio_prefix)
 
     # Load the data
     with open(path, "r") as f:
@@ -465,7 +467,7 @@ def load_data(
     context_len: int,
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
-    name_or_ref: Optional[str] = None,
+    name_or_ref: Optional[list[str]] = None,
 ):
     train_dir = Path(data_dir, "train")
     test_dir = Path(data_dir, "test")
@@ -609,7 +611,7 @@ def cli():
 @click.option("--use_class_weights", is_flag=True)
 @click.option("--randomize_last_layer", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref_only", type=click.Choice(["name", "ref", "both"]), default=None)
+@click.option("--name_or_ref", "-n", type=click.Choice(["name", "ref"]), default=None, multiple=True)
 def train(
     model: str,
     crf: bool,
@@ -635,7 +637,7 @@ def train(
     use_class_weights: bool,
     randomize_last_layer: bool,
     examples_as_theorems: bool,
-    name_or_ref_only: str | None,
+    name_or_ref: list[str] | None,
 ):
     class_names = tuple(
         k
@@ -644,9 +646,8 @@ def train(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or name_or_ref_only == "name",
-            reference=reference or name_or_ref_only == "reference",
-            both=name_or_ref_only == "both" and not name and not reference,
+            name=name or "name" in name_or_ref,
+            reference=reference or "reference" in name_or_ref,
         ).items()
         if v
     )
@@ -674,7 +675,7 @@ def train(
         context_len=context_len,
         label2id=label2id,
         examples_as_theorems=examples_as_theorems,
-        name_or_ref=name_or_ref_only,
+        name_or_ref=name_or_ref,
     )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
@@ -744,7 +745,7 @@ def train(
 @click.option("--batch_size", default=8)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref_only", type=click.Choice(["name", "ref", "both"]), default=None)
+@click.option("--name_or_ref", "-n", type=click.Choice(["name", "ref"]), default=None, multiple=True)
 def test(
     model: str,
     crf: bool,
@@ -762,7 +763,7 @@ def test(
     batch_size: int,
     debug: bool,
     examples_as_theorems: bool,
-    name_or_ref_only: str,
+    name_or_ref: str,
 ):
     class_names = tuple(
         k
@@ -771,9 +772,8 @@ def test(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or name_or_ref_only == "name",
-            reference=reference or name_or_ref_only == "reference",
-            both=name_or_ref_only == "both" and not name and not reference,
+            name=name or "name" in name_or_ref,
+            reference=reference or "reference" in name_or_ref,
         ).items()
         if v
     )
@@ -793,7 +793,7 @@ def test(
         tokenizer=tokenizer,
         context_len=context_len,
         examples_as_theorems=examples_as_theorems,
-        name_or_ref=name_or_ref_only,
+        name_or_ref=name_or_ref,
     )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
@@ -844,7 +844,7 @@ def test(
 @click.option("--trials", default=50)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref_only", type=click.Choice(["name", "ref", "both"]), default=None)
+@click.option("--name_or_ref", "-n", type=click.Choice(["name", "ref"]), default=None, multiple=True)
 def tune(
     model: str,
     crf: bool,
@@ -863,7 +863,7 @@ def tune(
     logging_steps: int,
     debug: bool,
     examples_as_theorems: bool,
-    name_or_ref_only: bool,
+    name_or_ref: list[str],
 ):
     class_names = tuple(
         k
@@ -872,9 +872,8 @@ def tune(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or name_or_ref_only == "name",
-            reference=reference or name_or_ref_only == "reference",
-            both=name_or_ref_only == "both" and not name and not reference,
+            name=name or "name" in name_or_ref,
+            reference=reference or "reference" in name_or_ref,
         ).items()
         if v
     )
