@@ -696,6 +696,7 @@ def train(
     use_class_weights: bool,
     randomize_last_layer: bool,
     freeze_bert: bool,
+    freeze_crf: bool,
     examples_as_theorems: bool,
     name_or_ref: list[str] | None,
     checkpoint: Path | None,
