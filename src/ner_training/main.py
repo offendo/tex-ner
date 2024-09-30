@@ -358,14 +358,19 @@ def load_file_name_or_ref(
     tokenizer: PreTrainedTokenizer,
     context_len: int = -1,
     strip_bio_prefix: bool = True,
+    train_only_tags: list[str] | None = None,
 ):
     # Load the data
     with open(path, "r") as f:
         data = json.load(f)
     logging.debug(f"Loaded file from {path}.")
 
+    # If we're training on everything, make sure the loader know that
+    if train_only_tags is None:
+        train_only_tags = list(label2id.keys())
+
     annos = pd.DataFrame.from_records(data["annotations"])
-    names = create_name_or_ref_tags(name_or_ref, annos, tokenizer)
+    names = create_name_or_ref_tags(name_or_ref, annos, tokenizer, force_reference="reference" in train_only_tags)
     all_examples = []
     for idx, row in names.iterrows():
         tokens = tokenizer(row.tex)
@@ -381,7 +386,9 @@ def load_file_name_or_ref(
 
         if strip_bio_prefix:
             tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
-        tokens["labels"] = [convert_label_to_idx(t, label2id) for t in tags]
+
+        # Anything we're not training on, mark it as -100
+        tokens["labels"] = [convert_label_to_idx(t, label2id) if t in train_only_tags else PAD_TOKEN_ID for t in tags]
 
         # Sanity check to ensure our labels/inputs line up properly
         n_labels = len(tokens["labels"])  # type:ignore
@@ -405,10 +412,19 @@ def load_file(
     context_len: int = -1,
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
-    name_or_ref: Optional[list[str]] = None,
+    name_or_ref: list[str] | None = None,
+    train_only_tags: list[str] | None = None,
 ):
     if name_or_ref is not None:
-        return load_file_name_or_ref(path, name_or_ref, label2id, tokenizer, context_len, strip_bio_prefix)
+        return load_file_name_or_ref(
+            path=path,
+            name_or_ref=name_or_ref,
+            label2id=label2id,
+            tokenizer=tokenizer,
+            context_len=context_len,
+            strip_bio_prefix=strip_bio_prefix,
+            train_only_tags=train_only_tags,
+        )
 
     # Load the data
     with open(path, "r") as f:
@@ -467,7 +483,8 @@ def load_data(
     context_len: int,
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
-    name_or_ref: Optional[list[str]] = None,
+    name_or_ref: list[str] | None = None,
+    train_only_tags: list[str] | None = None,
 ):
     train_dir = Path(data_dir, "train")
     test_dir = Path(data_dir, "test")
@@ -487,6 +504,7 @@ def load_data(
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
             name_or_ref=name_or_ref,
+            train_only_tags=train_only_tags,
         )
         train.extend(examples)
     logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
@@ -501,6 +519,7 @@ def load_data(
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
             name_or_ref=name_or_ref,
+            train_only_tags=train_only_tags,
         )
         val.extend(examples)
     logging.info(f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files).")
@@ -515,6 +534,7 @@ def load_data(
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
             name_or_ref=name_or_ref,
+            train_only_tags=train_only_tags,
         )
         test.extend(examples)
     logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
@@ -536,6 +556,8 @@ def load_model(
     context_len: int,
     dropout: float = 0.0,
     checkpoint: str | Path | None = None,
+    randomize_last_layer: bool = False,
+    freeze_bert: bool = False,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
@@ -558,6 +580,28 @@ def load_model(
                 state_dict[k] = file.get_tensor(k)
         model.load_state_dict(state_dict)
         logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
+
+    # Freeze BERT if needed
+    if freeze_bert:
+        if hasattr(model.bert, "roberta"):
+            bert = model.bert.roberta.encoder
+        elif hasattr(model.bert, "bert"):
+            bert = model.bert.bert.encoder
+        for param in bert.parameters():
+            param.requires_grad = False
+
+    # Randomize the last encoder layer, apparently this can help generlization
+    if randomize_last_layer:
+        last_layer = None
+        if hasattr(model.bert, "roberta"):
+            last_layer = model.bert.roberta.encoder.layer[-1]
+        elif hasattr(model.bert, "bert"):
+            last_layer = model.bert.bert.encoder.layer[-1]
+        if last_layer is not None:
+            for name, param in last_layer.named_parameters():
+                if "weight" in name and "LayerNorm" not in name:
+                    torch.nn.init.xavier_normal_(param)
+
     return model
 
 
@@ -610,8 +654,10 @@ def cli():
 @click.option("--debug", is_flag=True)
 @click.option("--use_class_weights", is_flag=True)
 @click.option("--randomize_last_layer", is_flag=True)
+@click.option("--freeze_bert", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--name_or_ref", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
+@click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
 def train(
     model: str,
     crf: bool,
@@ -636,8 +682,10 @@ def train(
     debug: bool,
     use_class_weights: bool,
     randomize_last_layer: bool,
+    freeze_bert: bool,
     examples_as_theorems: bool,
     name_or_ref: list[str] | None,
+    checkpoint: Path | None,
 ):
     class_names = tuple(
         k
@@ -646,27 +694,26 @@ def train(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or "name" in name_or_ref,
-            reference=reference or "reference" in name_or_ref,
+            name=name or (name_or_ref and "name" in name_or_ref),
+            reference=reference or (name_or_ref and "reference" in name_or_ref),
         ).items()
         if v
     )
 
     label2id = create_multiclass_labels(class_names)
     logging.info(f"Label map: {label2id}")
-    ner_model = load_model(model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, dropout=dropout)
+    ner_model = load_model(
+        model,
+        crf=crf,
+        context_len=context_len,
+        label2id=label2id,
+        debug=debug,
+        dropout=dropout,
+        checkpoint=checkpoint,
+        randomize_last_layer=randomize_last_layer,
+        freeze_bert=freeze_bert,
+    )
     tokenizer = AutoTokenizer.from_pretrained(model)
-
-    if randomize_last_layer:
-        last_layer = None
-        if hasattr(ner_model.bert, "roberta"):
-            last_layer = ner_model.bert.roberta.encoder.layer[-1]
-        elif hasattr(ner_model.bert, "bert"):
-            last_layer = ner_model.bert.ber.encoder.layer[-1]
-        if last_layer is not None:
-            for name, param in last_layer.named_parameters():
-                if "weight" in name and "LayerNorm" not in name:
-                    torch.nn.init.xavier_normal_(param)
 
     # Data loading
     data = load_data(
@@ -772,8 +819,8 @@ def test(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or "name" in name_or_ref,
-            reference=reference or "reference" in name_or_ref,
+            name=name or (name_or_ref and "name" in name_or_ref),
+            reference=reference or (name_or_ref and "reference" in name_or_ref),
         ).items()
         if v
     )
@@ -872,8 +919,8 @@ def tune(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or "name" in name_or_ref,
-            reference=reference or "reference" in name_or_ref,
+            name=name or (name_or_ref and "name" in name_or_ref),
+            reference=reference or (name_or_ref and "reference" in name_or_ref),
         ).items()
         if v
     )
