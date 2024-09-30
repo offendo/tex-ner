@@ -369,6 +369,8 @@ def load_file_name_or_ref(
     if train_only_tags is None:
         train_only_tags = list(label2id.keys())
 
+    train_only_ids = [label2id[t] for t in train_only_tags]
+
     annos = pd.DataFrame.from_records(data["annotations"])
     names = create_name_or_ref_tags(name_or_ref, annos, tokenizer, force_reference="reference" in train_only_tags)
     all_examples = []
@@ -388,7 +390,8 @@ def load_file_name_or_ref(
             tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
 
         # Anything we're not training on, mark it as -100
-        tokens["labels"] = [convert_label_to_idx(t, label2id) if t in train_only_tags else PAD_TOKEN_ID for t in tags]
+        tokens["labels"] = [convert_label_to_idx(t, label2id) for t in tags]
+        tokens["labels"] = [t if (t in train_only_ids) or (t == 0) else PAD_TOKEN_ID for t in tokens["labels"]]
 
         # Sanity check to ensure our labels/inputs line up properly
         n_labels = len(tokens["labels"])  # type:ignore
@@ -558,6 +561,7 @@ def load_model(
     checkpoint: str | Path | None = None,
     randomize_last_layer: bool = False,
     freeze_bert: bool = False,
+    freeze_crf: bool = False,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
@@ -590,6 +594,12 @@ def load_model(
         for param in bert.parameters():
             param.requires_grad = False
         logging.info("Froze bert encoder.")
+
+    # Freeze CRF if needed
+    if freeze_crf and model.crf is not None:
+        for param in model.crf.parameters():
+            param.requires_grad = False
+        logging.info("Froze crf.")
 
     # Randomize the last encoder layer, apparently this can help generlization
     if randomize_last_layer:
@@ -657,6 +667,7 @@ def cli():
 @click.option("--use_class_weights", is_flag=True)
 @click.option("--randomize_last_layer", is_flag=True)
 @click.option("--freeze_bert", is_flag=True)
+@click.option("--freeze_crf", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--name_or_ref", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
@@ -714,6 +725,7 @@ def train(
         checkpoint=checkpoint,
         randomize_last_layer=randomize_last_layer,
         freeze_bert=freeze_bert,
+        freeze_crf=freeze_crf,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
@@ -725,6 +737,7 @@ def train(
         label2id=label2id,
         examples_as_theorems=examples_as_theorems,
         name_or_ref=name_or_ref,
+        train_only_tags=["name"],
     )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
