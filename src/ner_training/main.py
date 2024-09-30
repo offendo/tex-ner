@@ -589,6 +589,7 @@ def load_model(
             bert = model.bert.bert.encoder
         for param in bert.parameters():
             param.requires_grad = False
+        logging.info("Froze bert encoder.")
 
     # Randomize the last encoder layer, apparently this can help generlization
     if randomize_last_layer:
@@ -601,6 +602,7 @@ def load_model(
             for name, param in last_layer.named_parameters():
                 if "weight" in name and "LayerNorm" not in name:
                     torch.nn.init.xavier_normal_(param)
+        logging.info("Randomized weights of last layer.")
 
     return model
 
