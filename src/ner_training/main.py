@@ -270,9 +270,7 @@ def align_annotations_to_tokens(tokens: BatchEncoding, char_tags: list[str]) -> 
     return aligned_tags
 
 
-def create_name_or_ref_tags(
-    tags: list[str], data: pd.DataFrame, tokenizer: PreTrainedTokenizer, force_reference: bool = True
-):
+def create_name_or_ref_tags(data: pd.DataFrame, tokenizer: PreTrainedTokenizer, force_reference: bool = True):
     defs_and_thms = data[data.tag.isin(["theorem", "definition", "example"])]
     records = []
     for idx, outer in defs_and_thms.iterrows():
@@ -280,7 +278,7 @@ def create_name_or_ref_tags(
             (data.fileid == outer.fileid)
             & (data.start >= outer.start)
             & (data.end <= outer.end)
-            & (data.tag.isin(tags))
+            & (data.tag.isin(["name", "reference"]))
         ]
         assert isinstance(inner, pd.DataFrame)
 
@@ -353,7 +351,6 @@ def create_name_or_ref_tags(
 
 def load_file_name_or_ref(
     path: str | Path,
-    name_or_ref: list[str],
     label2id: dict[str, int],
     tokenizer: PreTrainedTokenizer,
     context_len: int = -1,
@@ -372,7 +369,7 @@ def load_file_name_or_ref(
     train_only_ids = [label2id[t] for t in train_only_tags]
 
     annos = pd.DataFrame.from_records(data["annotations"])
-    names = create_name_or_ref_tags(name_or_ref, annos, tokenizer, force_reference="reference" in train_only_tags)
+    names = create_name_or_ref_tags(annos, tokenizer, force_reference="reference" in train_only_tags)
     all_examples = []
     for idx, row in names.iterrows():
         tokens = tokenizer(row.tex)
@@ -415,13 +412,11 @@ def load_file(
     context_len: int = -1,
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
-    name_or_ref: list[str] | None = None,
     train_only_tags: list[str] | None = None,
 ):
-    if name_or_ref is not None:
+    if train_only_tags is not None:
         return load_file_name_or_ref(
             path=path,
-            name_or_ref=name_or_ref,
             label2id=label2id,
             tokenizer=tokenizer,
             context_len=context_len,
@@ -486,9 +481,9 @@ def load_data(
     context_len: int,
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
-    name_or_ref: list[str] | None = None,
     train_only_tags: list[str] | None = None,
 ):
+    logging.info(f"{train_only_tags=}")
     train_dir = Path(data_dir, "train")
     test_dir = Path(data_dir, "test")
     val_dir = Path(data_dir, "val")
@@ -506,7 +501,6 @@ def load_data(
             context_len=context_len,
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
-            name_or_ref=name_or_ref,
             train_only_tags=train_only_tags,
         )
         train.extend(examples)
@@ -521,7 +515,6 @@ def load_data(
             context_len=context_len,
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
-            name_or_ref=name_or_ref,
             train_only_tags=train_only_tags,
         )
         val.extend(examples)
@@ -536,7 +529,6 @@ def load_data(
             context_len=context_len,
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
-            name_or_ref=name_or_ref,
             train_only_tags=train_only_tags,
         )
         test.extend(examples)
@@ -669,7 +661,7 @@ def cli():
 @click.option("--freeze_bert", is_flag=True)
 @click.option("--freeze_crf", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
+@click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
 def train(
     model: str,
@@ -698,7 +690,7 @@ def train(
     freeze_bert: bool,
     freeze_crf: bool,
     examples_as_theorems: bool,
-    name_or_ref: list[str] | None,
+    train_only_tags: list[str] | None,
     checkpoint: Path | None,
 ):
     class_names = tuple(
@@ -708,8 +700,8 @@ def train(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or (name_or_ref and "name" in name_or_ref),
-            reference=reference or (name_or_ref and "reference" in name_or_ref),
+            name=name,
+            reference=reference,
         ).items()
         if v
     )
@@ -737,8 +729,7 @@ def train(
         context_len=context_len,
         label2id=label2id,
         examples_as_theorems=examples_as_theorems,
-        name_or_ref=name_or_ref,
-        train_only_tags=["name"],
+        train_only_tags=train_only_tags,
     )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
@@ -808,7 +799,7 @@ def train(
 @click.option("--batch_size", default=8)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
+@click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 def test(
     model: str,
     crf: bool,
@@ -826,7 +817,7 @@ def test(
     batch_size: int,
     debug: bool,
     examples_as_theorems: bool,
-    name_or_ref: str,
+    train_only_tags: list[str],
 ):
     class_names = tuple(
         k
@@ -835,8 +826,8 @@ def test(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or (name_or_ref and "name" in name_or_ref),
-            reference=reference or (name_or_ref and "reference" in name_or_ref),
+            name=name,
+            reference=reference,
         ).items()
         if v
     )
@@ -856,7 +847,7 @@ def test(
         tokenizer=tokenizer,
         context_len=context_len,
         examples_as_theorems=examples_as_theorems,
-        name_or_ref=name_or_ref,
+        train_only_tags=train_only_tags,
     )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
@@ -907,7 +898,7 @@ def test(
 @click.option("--trials", default=50)
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
-@click.option("--name_or_ref", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
+@click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 def tune(
     model: str,
     crf: bool,
@@ -926,7 +917,7 @@ def tune(
     logging_steps: int,
     debug: bool,
     examples_as_theorems: bool,
-    name_or_ref: list[str],
+    train_only_tags: list[str] | None,
 ):
     class_names = tuple(
         k
@@ -935,8 +926,8 @@ def tune(
             theorem=theorem,
             proof=proof,
             example=example,
-            name=name or (name_or_ref and "name" in name_or_ref),
-            reference=reference or (name_or_ref and "reference" in name_or_ref),
+            name=name,
+            reference=reference,
         ).items()
         if v
     )
@@ -970,7 +961,12 @@ def tune(
     # Data loading
     tokenizer = AutoTokenizer.from_pretrained(model)
     data = load_data(
-        data_dir, tokenizer, context_len=context_len, label2id=label2id, examples_as_theorems=examples_as_theorems
+        data_dir,
+        tokenizer,
+        context_len=context_len,
+        label2id=label2id,
+        examples_as_theorems=examples_as_theorems,
+        train_only_tags=train_only_tags,
     )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
     args = TrainingArguments(
