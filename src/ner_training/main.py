@@ -494,17 +494,12 @@ def tune(
             "weight_decay": ray.tune.loguniform(1e-6, 1e-3),
             "lr_scheduler_type": ray.tune.choice(["linear", "cosine", "inverse_sqrt"]),
             "label_smoothing_factor": ray.tune.uniform(0.0, 0.1),
-            "dropout": ray.tune.uniform(0.0, 0.5),
             "max_steps": ray.tune.uniform(500, 2000),
         }
 
     def make_model_init(*args, **kwargs):
         def model_init(trial):
-            try:
-                dropout = trial["dropout"]
-            except Exception as e:
-                dropout = 0.0
-            return load_model(*args, dropout=dropout, **kwargs)
+            return load_model(*args, **kwargs)
 
         return model_init
 

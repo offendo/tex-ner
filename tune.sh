@@ -16,7 +16,6 @@ python src/ner_training/main.py tune \
     --model FacebookAI/roberta-base \
     --crf \
     --definition --theorem --proof --example \
-    --use_class_weights \
     --trials 50 \
     --data_dir /volume/ner/roberta-base-semitight \
     --output_dir /volume/ner/outputs/$RUN_NAME \
