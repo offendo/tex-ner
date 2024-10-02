@@ -4,6 +4,9 @@
 huggingface-cli login --token $(cat /etc/api-tokens/hf-token)
 wandb login $(cat /etc/api-tokens/wandb-token)
 
+# Re-install local code
+pip install -U .
+
 # Determine run name
 #RUN_NAME=$(curl https://random-word-api.herokuapp.com/word?number=2 | tr '[,"]' '-' | sed 's/--//g')
 if [[ -z $RUN_NAME ]]; then
