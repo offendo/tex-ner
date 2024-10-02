@@ -4,6 +4,8 @@
 huggingface-cli login --token $(cat /etc/api-tokens/hf-token)
 wandb login $(cat /etc/api-tokens/wandb-token)
 
+pip install -U .
+
 # Determine run name
 RUN_NAME=$(curl https://random-word-api.herokuapp.com/word?number=2 | tr '[,"]' '-' | sed 's/--//g')
 
@@ -18,4 +20,4 @@ python src/ner_training/main.py tune \
     --definition --theorem --proof --example \
     --trials 50 \
     --data_dir /volume/ner/roberta-base-semitight \
-    --output_dir /volume/ner/outputs/$RUN_NAME \
+    --output_dir /volume/ner/outputs/$RUN_NAME
