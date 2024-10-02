@@ -13,19 +13,19 @@ def cli():
     pass
 
 @cli.command()
-@click.option('--predictions', type=click.Path(exists=True), required=True)
+@click.option('--predictions', '-p', type=click.Path(exists=True), required=True, multiple=True)
 @click.option('--output', type=click.Path(exists=False), required=True)
 @click.option('--norm-all', 'norm', is_flag=True, flag_value='all')
 @click.option('--norm-pred', 'norm', is_flag=True, flag_value='pred')
 @click.option('--norm-true', 'norm', is_flag=True, flag_value='true')
 @click.option('--show', is_flag=True)
 def heatmap(
-    predictions: Path,
+    predictions: list[Path],
     output: Path,
     norm: Optional[str],
     show: bool,
 ):
-    df = pd.read_json(predictions)
+    df = pd.concat([pd.read_json(pred) for pred in predictions])
     labels = [l for l in df.labels.explode().unique()]
     fig = plt.figure(figsize=(10,10))
     mat = confusion_matrix(df.labels.explode(), df.preds.explode(), labels=labels, normalize=norm)
@@ -36,13 +36,13 @@ def heatmap(
         input()
 
 @cli.command()
-@click.option('--predictions', type=click.Path(exists=True), required=True)
+@click.option('--predictions', '-p', type=click.Path(exists=True), required=True, multiple=True)
 @click.option('--average', type=str, required=True)
 def multilabel(
-    predictions: Path,
+    predictions: list[Path],
     average: str
 ):
-    df = pd.read_json(predictions)
+    df = pd.concat([pd.read_json(pred) for pred in predictions])
     classes = [l for l in df.labels.explode().str.split('-').explode().unique() if l != 'O']
     print('Labels: ', classes)
     mlb = MultiLabelBinarizer(classes=classes)

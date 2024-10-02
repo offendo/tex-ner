@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-base
+  name: nilay-ner-train-name-ref
 spec:
   template:
     spec:
@@ -24,23 +24,23 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: base-fixed-crf
+              value: name-ref-fixed-crf-3
             - name: CRF
               value: "--crf"
             - name: CLASSES
-              value: "--definition --theorem --proof --example"
+              value: "--name --reference -n name -n reference"
             - name: DO_TRAIN
               value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 1500"
+              value: "--steps 1948 --checkpoint /volume/ner/outputs/name-ref-first-name-then-both/checkpoint-best"
             - name: DATASET
-              value: roberta-base-semitight
+              value: roberta-base-refs
             - name: LEARNING_RATE
-              value: "0.00007"
+              value: "0.00005987474910461403"
             - name: BATCH_SIZE
               value: "16"
             - name: LABEL_SMOOTHING
-              value: "0.06505159298527952"
+              value: "0.006505159298527952"
             - name: WARMUP_RATIO
               value: "0.08599404067363206"
             - name: DROPOUT
@@ -48,7 +48,7 @@ spec:
             - name: WEIGHT_DECAY
               value: "0.00010988100318524612"
             - name: SCHEDULER
-              value: "inverse_sqrt"
+              value: "linear"
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:

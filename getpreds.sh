@@ -5,11 +5,9 @@ if [[ -z $NAME ]]; then
   exit 1
 fi
 
-if [[ -z results/$NAME.test.preds.json ]]; then 
-  for split in "test" "val"; do
-    kubectl cp nilay-pod:/volume/ner/outputs/$NAME/$SPLIT.preds.json results/$NAME.$SPLIT.preds.json;
-  done
-fi
+for SPLIT in test val; do
+  kubectl cp nilay-pod:/volume/ner/outputs/$NAME/$SPLIT.preds.json results/$NAME.$SPLIT.preds.json;
+done
 
 exec 3<<EOF 
 import pandas as pd

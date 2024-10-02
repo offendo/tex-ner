@@ -45,18 +45,14 @@ def load_file_name_or_ref(
     path: str | Path,
     label2id: dict[str, int],
     tokenizer: PreTrainedTokenizer,
+    train_only_tags: list[str],
     context_len: int = -1,
     strip_bio_prefix: bool = True,
-    train_only_tags: list[str] | None = None,
 ):
     # Load the data
     with open(path, "r") as f:
         data = json.load(f)
     logging.debug(f"Loaded file from {path}.")
-
-    # If we're training on everything, make sure the loader know that
-    if train_only_tags is None:
-        train_only_tags = list(label2id.keys())
 
     train_only_ids = [label2id[t] for t in train_only_tags]
 
@@ -106,7 +102,7 @@ def load_file(
     examples_as_theorems: bool = False,
     train_only_tags: list[str] | None = None,
 ):
-    if train_only_tags is not None:
+    if train_only_tags is not None and len(train_only_tags) > 0:
         return load_file_name_or_ref(
             path=path,
             label2id=label2id,
