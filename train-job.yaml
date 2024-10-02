@@ -24,15 +24,15 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: names-and-refs-duplicate-refs
+              value: name-ref-fixed-crf
             - name: CRF
               value: "--crf"
             - name: CLASSES
-              value: "--name --reference --name_or_ref_only=both"
+              value: "--name --reference -n name -n reference"
             - name: DO_TRAIN
-              value: "false"
+              value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 1500 --use_class_weights"
+              value: "--steps 1500"
             - name: DATASET
               value: roberta-base-refs
             - name: LEARNING_RATE
