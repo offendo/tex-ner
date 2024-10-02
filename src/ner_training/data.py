@@ -103,6 +103,7 @@ def load_file(
     train_only_tags: list[str] | None = None,
 ):
     if train_only_tags is not None and len(train_only_tags) > 0:
+        logging.debug("Loading name/ref data only.")
         return load_file_name_or_ref(
             path=path,
             label2id=label2id,
