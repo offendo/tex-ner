@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 
-import json
 import logging
-import math
 import os
 from pathlib import Path
 from pprint import pformat
-from typing import Callable, Iterable, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import click
 import evaluate
@@ -15,6 +13,7 @@ import pandas as pd
 import ray
 import torch
 import torch.nn as nn
+from torch.nn.utils.rnn import pad_sequence
 import wandb
 from datasets import Dataset, DatasetDict
 from more_itertools import chunked, flatten
@@ -28,15 +27,19 @@ from transformers import (
     AutoModel,
     AutoModelForTokenClassification,
     AutoTokenizer,
+    BatchEncoding,
     DataCollatorForTokenClassification,
     EvalPrediction,
     PretrainedConfig,
     PreTrainedTokenizer,
     Trainer,
     TrainingArguments,
-    BatchEncoding,
 )
 from transformers.modeling_outputs import TokenClassifierOutput
+
+from ner_training.data import load_data
+from ner_training.model import BertWithCRF
+from ner_training.utils import *
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -45,148 +48,10 @@ precision_metric = evaluate.load("precision")
 recall_metric = evaluate.load("recall")
 metric = evaluate.combine([f1_metric, precision_metric, recall_metric])
 
-PAD_TOKEN_ID = -100
 
 logging.basicConfig(level=logging.INFO)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 logging.info(f"Running on device: {DEVICE}")
-
-
-class BertWithCRF(nn.Module):
-    def __init__(
-        self,
-        pretrained_model_name: str | Path,
-        label2id: dict[str, int],
-        id2label: dict[int, str],
-        context_len: int = 512,
-        dropout: float = 0.0,
-        debug: bool = False,
-        crf: bool = False,
-    ):
-        super().__init__()
-        if debug:
-            config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=len(label2id))
-            config.hidden_size = 128
-            config.intermediate_size = 256
-            config.num_hidden_layers = 2
-            config.num_attention_heads = 2
-            self.bert = AutoModelForTokenClassification.from_config(config)
-        else:
-            self.bert = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name,
-                num_labels=len(label2id),
-                label2id=label2id,
-                id2label=id2label,
-                hidden_dropout_prob=dropout,
-            )
-        self.crf = CRF(len(label2id), batch_first=True) if crf else None
-        self.num_labels = len(label2id)
-        self.ctx = 512  # this is only used for BERT context window, so just keep it static
-
-    def no_crf_forward(
-        self,
-        input_ids: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        token_type_ids: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ):
-        return self.bert.forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            labels=labels,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-
-    def crf_forward(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        labels: Optional[torch.LongTensor] = None,
-        token_type_ids: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> tuple[torch.Tensor] | TokenClassifierOutput:
-        assert self.crf is not None
-        # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
-        B, N = input_ids.shape
-        logits = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=input_ids.device)
-        for idx in range(math.ceil(N / 512)):
-            outputs = self.bert(
-                input_ids=input_ids[:, idx * self.ctx : idx * self.ctx + self.ctx],
-                attention_mask=attention_mask[:, idx * self.ctx : idx * self.ctx + self.ctx],
-                labels=(
-                    labels[:, idx * self.ctx : idx * self.ctx + self.ctx].contiguous() if labels is not None else None
-                ),
-            )
-            logits[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
-        is_pad = labels == -100
-        crf_out = self.crf(logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="token_mean")
-
-        loss = None
-        if labels is not None:
-            loss = -crf_out
-
-        return TokenClassifierOutput(
-            loss=loss,
-            logits=logits,  # type:ignore
-            hidden_states=None,
-            attentions=None,
-        )
-
-    def forward(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        labels: Optional[torch.LongTensor] = None,
-        token_type_ids: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> tuple[torch.Tensor] | TokenClassifierOutput:
-        if self.crf:
-            return self.crf_forward(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels,
-                token_type_ids=token_type_ids,
-                position_ids=position_ids,
-                head_mask=head_mask,
-                inputs_embeds=inputs_embeds,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-            )
-        return self.no_crf_forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            labels=labels,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
 
 
 class CRFTrainer(Trainer):
@@ -211,336 +76,25 @@ class CRFTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-def create_multiclass_labels(classes):
+def predict(model: BertWithCRF, dataset: Iterable, batch_size: int, data_collator: Callable, label2id: dict[str, int]):
+    preds = []
+    logits = []
     labels = []
-    for arg in sorted(classes):
-        new = []
-        for label in labels:
-            new.append(f"{label}-{arg}")
-        new.append(arg)
-        labels.extend(new)
-
-    labels = ["O"] + labels
-    for lab in labels:
-        if "name" in lab and "reference" in lab:
-            labels.remove(lab)
-    return {lab: idx for idx, lab in enumerate(labels)}
-
-
-def convert_label_to_idx(tags: list[str], label2id: dict[str, int]):
-    filtered_tags = sorted([t for t in tags if t in label2id])
-    if len(filtered_tags) == 0:
-        return label2id["O"]
-    return label2id["-".join(filtered_tags)]
-
-
-def align_annotations_to_tokens(tokens: BatchEncoding, char_tags: list[str]) -> list[list[str]]:
-    """Converts character-level annotations to token-level
-
-    Parameters
-    ----------
-    tokens : BatchEncoding
-        Output of a huggingface tokenizer on text
-    char_tags : list[list[str]]
-        Character-level tags (list of tags per character)
-
-    Returns
-    -------
-    list[str]
-        Token-level tags (list of tags per token)
-    """
-
-    aligned_tags: list[list[str]] = []
-    for idx in range(len(tokens.input_ids)):
-        span = tokens.token_to_chars(idx)
-        if span is None:
-            continue
-
-        tags_for_token = list(set(char_tags[span.start : span.end]))
-        if "O" in tags_for_token and len(tags_for_token) > 1:
-            tags_for_token.remove("O")
-
-        # Ensure that we only have B- or I- but not both
-        for tag in tags_for_token:
-            b = tag.replace("I-", "B-")
-            i = tag.replace("B-", "I-")
-            if b in tags_for_token and i in tags_for_token:
-                tags_for_token.remove(i)
-        aligned_tags.append(tags_for_token)
-    return aligned_tags
-
-
-def create_name_or_ref_tags(data: pd.DataFrame, tokenizer: PreTrainedTokenizer, force_reference: bool = True):
-    defs_and_thms = data[data.tag.isin(["theorem", "definition", "example"])]
-    records = []
-    for idx, outer in defs_and_thms.iterrows():
-        inner = data[
-            (data.fileid == outer.fileid)
-            & (data.start >= outer.start)
-            & (data.end <= outer.end)
-            & (data.tag.isin(["name", "reference"]))
-        ]
-        assert isinstance(inner, pd.DataFrame)
-
-        def find_all(text, pattern):
-            """Non-regex version of re.findall because I don't want patterns"""
-            start = 0
-            while True:
-                start = text.find(pattern, start)
-                if start == -1:
-                    return
-                yield start
-                start += len(pattern)
-
-        # Make sure the references are being repeated
-        copies = []
-        for idx, ref in inner[inner.tag == "reference"].iterrows():
-            if len(ref.text) == 1:
-                search_text = f" {ref.text.strip()} "
-            else:
-                search_text = ref.text
-            for start in find_all(outer.text, search_text):
-                # We have to offset the start index by the outer start index
-                # since we're subtracting the same offset in the next loop
-                start = start + outer.start
-                end = start + len(ref.text)
-                if start == ref.start:
-                    continue
-                other_tags = inner[
-                    ((inner.start <= start) & (start <= inner.end)) | ((inner.start <= end) & (end <= inner.end))
-                ]
-                if len(other_tags) > 0:
-                    continue
-                logging.debug(f"Adding a copy of {ref.text}")
-                copies.append(
-                    dict(
-                        start=start + outer.start,
-                        end=start + outer.start + len(ref.text),
-                        text=ref.text,
-                        tag="reference",
-                    )
-                )
-        merged = pd.concat([inner[["start", "end", "text", "tag"]], pd.DataFrame.from_records(copies)])
-
-        if force_reference and (merged.tag == "reference").sum() == 0:
-            continue
-
-        # Now we need to merge all the examples
-        current_records = []
-        tex = outer.text
-        tokens = tokenizer(outer.text)
-        for i, row in merged.iterrows():
-            new_start = row.start - outer.start
-            new_end = row.end - outer.start
-            row_tags = [
-                (f"B-{row.tag}" if i == new_start else f"I-{row.tag}" if (new_start <= i <= new_end) else "O")
-                for i in range(len(outer.text))
-            ]
-            aligned_tags = align_annotations_to_tokens(tokens, row_tags)
-            current_records.append(aligned_tags)
-
-        if not current_records:
-            continue
-
-        merged_tags = [list(set(flatten(tags_at_idx))) for tags_at_idx in zip(*current_records)]
-
-        records.append({"tex": tex, "tokens": tokens, "tags": merged_tags})
-
-    return pd.DataFrame.from_records(records)
-
-
-def load_file_name_or_ref(
-    path: str | Path,
-    label2id: dict[str, int],
-    tokenizer: PreTrainedTokenizer,
-    context_len: int = -1,
-    strip_bio_prefix: bool = True,
-    train_only_tags: list[str] | None = None,
-):
-    # Load the data
-    with open(path, "r") as f:
-        data = json.load(f)
-    logging.debug(f"Loaded file from {path}.")
-
-    # If we're training on everything, make sure the loader know that
-    if train_only_tags is None:
-        train_only_tags = list(label2id.keys())
-
-    train_only_ids = [label2id[t] for t in train_only_tags]
-
-    annos = pd.DataFrame.from_records(data["annotations"])
-    names = create_name_or_ref_tags(annos, tokenizer, force_reference="reference" in train_only_tags)
-    all_examples = []
-    for idx, row in names.iterrows():
-        tokens = tokenizer(row.tex)
-        tags = row.tags
-
-        specials = list(tokenizer.special_tokens_map.values())
-        special_tokens = set(map(tokenizer.convert_tokens_to_ids, specials))
-        # Add an empty tag for the <s> or </s> tokens
-        if tokens.input_ids[0] in special_tokens:
-            tags = [[]] + tags
-        if tokens.input_ids[-1] in special_tokens:
-            tags = tags + [[]]
-
-        if strip_bio_prefix:
-            tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
-
-        # Anything we're not training on, mark it as -100
-        tokens["labels"] = [convert_label_to_idx(t, label2id) for t in tags]
-        tokens["labels"] = [t if (t in train_only_ids) or (t == 0) else PAD_TOKEN_ID for t in tokens["labels"]]
-
-        # Sanity check to ensure our labels/inputs line up properly
-        n_labels = len(tokens["labels"])  # type:ignore
-        n_tokens = len(tokens["input_ids"])  # type:ignore
-        assert n_labels == n_tokens, f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
-
-        example = []
-
-        for idx in range(math.ceil(n_tokens / context_len)):
-            labels = tokens.labels[idx * context_len : (idx + 1) * context_len]
-            input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
-            mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
-            all_examples.append({"labels": labels, "input_ids": input_ids, "attention_mask": mask})
-    return all_examples
-
-
-def load_file(
-    path: str | Path,
-    label2id: dict[str, int],
-    tokenizer: PreTrainedTokenizer,
-    context_len: int = -1,
-    strip_bio_prefix: bool = True,
-    examples_as_theorems: bool = False,
-    train_only_tags: list[str] | None = None,
-):
-    if train_only_tags is not None:
-        return load_file_name_or_ref(
-            path=path,
-            label2id=label2id,
-            tokenizer=tokenizer,
-            context_len=context_len,
-            strip_bio_prefix=strip_bio_prefix,
-            train_only_tags=train_only_tags,
+    for batch in chunked(dataset, n=batch_size):
+        inputs = data_collator(batch)
+        batch_out = model.forward(
+            input_ids=inputs["input_ids"].to(model.bert.device),
+            attention_mask=inputs["attention_mask"].to(model.bert.device),
+            labels=inputs["labels"].to(model.bert.device) if "labels" in inputs else None,
         )
+        logits.extend(batch_out.logits.detach().numpy())
+        if hasattr(batch_out, "predictions") and batch_out.predictions is not None:
+            preds.extend(batch_out.predictions)
+        if inputs["labels"] is not None:
+            labels.extend(inputs["labels"])
 
-    # Load the data
-    with open(path, "r") as f:
-        data = json.load(f)
-    logging.debug(f"Loaded file from {path}.")
-
-    iob_tags = data["iob_tags"]  # list of [text, [tags]]
-    tex = data["tex"]  # tex string
-
-    # Tokenize the data from the file
-    tokens = tokenizer(tex)
-    logging.debug(f"Tokenized file into {len(tokens.input_ids)} tokens.")
-
-    tags = [tags for text, tags in iob_tags]
-    if strip_bio_prefix:
-        tags = [[t.replace("B-", "").replace("I-", "") for t in tag] for tag in tags]
-    if examples_as_theorems:
-        tags = [list(set([t.replace("example", "theorem") for t in tag])) for tag in tags]
-
-    specials = list(tokenizer.special_tokens_map.values())
-    special_tokens = set(map(tokenizer.convert_tokens_to_ids, specials))
-
-    # Add an empty tag for the <s> or </s> tokens
-    if tokens.input_ids[0] in special_tokens:
-        tags = [[]] + tags
-        logging.debug(f"Added an `O` token for the BOS <s> token.")
-    if tokens.input_ids[-1] in special_tokens:
-        tags = tags + [[]]
-        logging.debug(f"Added an `O` token for the EOS </s> token.")
-
-    # Convert the tags to idxs
-    tokens["labels"] = [convert_label_to_idx(t, label2id) for t in tags]
-
-    # Sanity check to ensure our labels/inputs line up properly
-    n_labels = len(tokens["labels"])  # type:ignore
-    n_tokens = len(tokens["input_ids"])  # type:ignore
-    assert n_labels == n_tokens, f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
-
-    # Split it up into context-window sized chunks (for training)
-    if context_len > 0:
-        sub_examples = []
-        for idx in range(math.ceil(n_tokens / context_len)):
-            labels = tokens.labels[idx * context_len : (idx + 1) * context_len]
-            input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
-            mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
-            sub_examples.append({"labels": labels, "input_ids": input_ids, "attention_mask": mask})
-        return sub_examples
-
-    return [tokens]
-
-
-def load_data(
-    data_dir: str | Path,
-    tokenizer: PreTrainedTokenizer,
-    label2id: dict[str, int],
-    context_len: int,
-    strip_bio_prefix: bool = True,
-    examples_as_theorems: bool = False,
-    train_only_tags: list[str] | None = None,
-):
-    logging.info(f"{train_only_tags=}")
-    train_dir = Path(data_dir, "train")
-    test_dir = Path(data_dir, "test")
-    val_dir = Path(data_dir, "val")
-
-    assert train_dir.exists(), f"Expected {train_dir} to exist."
-    assert test_dir.exists(), f"Expected {test_dir} to exist."
-    assert val_dir.exists(), f"Expected {val_dir} to exist."
-
-    train = []
-    for js in os.listdir(train_dir):
-        examples = load_file(
-            train_dir / js,
-            label2id=label2id,
-            tokenizer=tokenizer,
-            context_len=context_len,
-            strip_bio_prefix=strip_bio_prefix,
-            examples_as_theorems=examples_as_theorems,
-            train_only_tags=train_only_tags,
-        )
-        train.extend(examples)
-    logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
-
-    val = []
-    for js in os.listdir(val_dir):
-        examples = load_file(
-            val_dir / js,
-            label2id=label2id,
-            tokenizer=tokenizer,
-            context_len=context_len,
-            strip_bio_prefix=strip_bio_prefix,
-            examples_as_theorems=examples_as_theorems,
-            train_only_tags=train_only_tags,
-        )
-        val.extend(examples)
-    logging.info(f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files).")
-
-    test = []
-    for js in os.listdir(test_dir):
-        examples = load_file(
-            test_dir / js,
-            label2id=label2id,
-            tokenizer=tokenizer,
-            context_len=context_len,
-            strip_bio_prefix=strip_bio_prefix,
-            examples_as_theorems=examples_as_theorems,
-            train_only_tags=train_only_tags,
-        )
-        test.extend(examples)
-    logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
-
-    return DatasetDict(
-        {
-            "train": Dataset.from_list(train),
-            "val": Dataset.from_list(val),
-            "test": Dataset.from_list(test),
-        }
-    )
+    # Decode
+    return dict(predictions=preds, labels=labels, logits=logits)
 
 
 def load_model(
@@ -609,14 +163,37 @@ def load_model(
     return model
 
 
+def compute_crf_metrics(eval_out: tuple):
+    preds, labels = eval_out
+    classes = [cls for cls in label2id.values() if cls != 0]
+    preds = list(flatten(preds))
+
+    ls = [l for l in labels.ravel() if l != -100]
+    ps = [p for p, l in zip(preds, labels.ravel()) if l != -100]
+
+    if len(label2id) == 2:
+        p, r, f, _ = precision_recall_fscore_support(ls, ps, average="binary", pos_label=1)
+    else:
+        p, r, f, _ = precision_recall_fscore_support(ls, ps, average="micro", labels=classes)
+    return dict(precision=p, recall=r, f1=f)
+
+
 def make_compute_metrics(label2id):
     def compute_metrics(eval_out: EvalPrediction):
-        logits, labels = eval_out
+        logits_and_preds, labels = eval_out
         assert isinstance(labels, np.ndarray)
+
+        if isinstance(logits_and_preds, tuple):
+            logits = logits_and_preds[0]
+            preds = logits_and_preds[1]
+            # if preds.shape == logits.shape:
+            #     preds = np.argmax(logits, axis=-1)
+        else:
+            logits = logits_and_preds
+            preds = np.argmax(logits, axis=-1)
 
         classes = [cls for cls in label2id.values() if cls != 0]
 
-        preds = np.argmax(logits, axis=-1)
         ls = [l for l in labels.ravel() if l != -100]
         ps = [p for p, l in zip(preds.ravel(), labels.ravel()) if l != -100]
 
@@ -693,20 +270,7 @@ def train(
     train_only_tags: list[str] | None,
     checkpoint: Path | None,
 ):
-    class_names = tuple(
-        k
-        for k, v in dict(
-            definition=definition,
-            theorem=theorem,
-            proof=proof,
-            example=example,
-            name=name,
-            reference=reference,
-        ).items()
-        if v
-    )
-
-    label2id = create_multiclass_labels(class_names)
+    label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
     ner_model = load_model(
         model,
@@ -819,19 +383,7 @@ def test(
     examples_as_theorems: bool,
     train_only_tags: list[str],
 ):
-    class_names = tuple(
-        k
-        for k, v in dict(
-            definition=definition,
-            theorem=theorem,
-            proof=proof,
-            example=example,
-            name=name,
-            reference=reference,
-        ).items()
-        if v
-    )
-    label2id = create_multiclass_labels(class_names)
+    label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
 
     id2label = {v: k for k, v in label2id.items()}
@@ -866,9 +418,22 @@ def test(
     )
     # Run eval on 'test' and 'val'
     for split in ["test", "val"]:
-        logits, labels, metrics = trainer.predict(data[split])  # type:ignore
-        logging.info(pformat(metrics))
-        preds = np.argmax(logits, axis=-1)
+        if ner_model.crf is None:
+            logits, labels, metrics = trainer.predict(data[split])  # type:ignore
+            preds = np.argmax(logits, axis=-1)
+            logging.info(pformat(metrics))
+        else:
+            (logits, preds), labels, metrics = trainer.predict(data[split])  # type:ignore
+            preds = np.argmax(logits, axis=-1)
+            logging.info(pformat(metrics))
+            # outputs = predict(ner_model, data[split], batch_size, collator, label2id)
+            # logits = outputs["logits"]
+            # preds = outputs["predictions"]
+            # preds = pad_sequence([p.detach() for p in preds], batch_first=True, padding_value=PAD_TOKEN_ID).numpy()
+            # labels = outputs["labels"]
+            # labels = pad_sequence([l.detach() for l in labels], batch_first=True, padding_value=PAD_TOKEN_ID).numpy()
+
+            # metrics = make_compute_metrics(label2id)(EvalPrediction(predictions=(logits, preds), label_ids=labels))
 
         output = {
             "labels": [[id2label[l] for l in ll if l != PAD_TOKEN_ID] for ll in labels],
@@ -919,19 +484,7 @@ def tune(
     examples_as_theorems: bool,
     train_only_tags: list[str] | None,
 ):
-    class_names = tuple(
-        k
-        for k, v in dict(
-            definition=definition,
-            theorem=theorem,
-            proof=proof,
-            example=example,
-            name=name,
-            reference=reference,
-        ).items()
-        if v
-    )
-    label2id = create_multiclass_labels(class_names)
+    label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
 
     def raytune_hp_space(trial):
         return {
