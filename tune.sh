@@ -11,13 +11,12 @@ echo "Beginning run $RUN_NAME"
 mkdir -p "/volume/ner/outputs/$RUN_NAME"
 
 # Run training
-export WANDB_RUN_NAME="$RUN_NAME"
+export WANDB_RUN="$RUN_NAME"
 python src/ner_training/main.py tune \
     --model FacebookAI/roberta-base \
     --crf \
-    --name --reference --name_or_ref_only='both' \
+    --definition --theorem --proof --example \
     --use_class_weights \
-    --steps 1500 \
     --trials 50 \
-    --data_dir /volume/ner/roberta-base-refs \
+    --data_dir /volume/ner/roberta-base-semitight \
     --output_dir /volume/ner/outputs/$RUN_NAME \

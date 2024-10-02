@@ -22,9 +22,14 @@ df['probs'] = df.logits.apply(lambda x: softmax(np.stack([np.array(y) for y in x
 df = df[['labels', 'preds', 'tokens', 'probs']].explode(['labels', 'preds', 'tokens', 'probs'])
 df.to_csv('outputs.csv', sep='\t', index=False, float_format=lambda x: '%.2f')
 
-p, r, f, s = prfs(df.labels, df.preds, average=None, labels=['name', 'reference'])
-pname, pref = p; rname, rref = r; fname, fref = f;
-pprint(dict(name_precision=pname, name_recall=rname, name_f1=fname, ref_precision=pref, ref_recall=rref, ref_f1=fref))
+p, r, f, s = prfs(df.labels, df.preds, average=None, labels=[l for l in df.labels.unique() if l != 'O'] )
+metrics = {}
+for i, l in enumerate([l for l in df.labels.unique() if l != 'O']):
+  metrics[f"{l}_precision"] = p[i]
+  metrics[f"{l}_recall"] = r[i]
+  metrics[f"{l}_f1"] = f[i]
+
+pprint(metrics)
 EOF
 
 python /dev/fd/3
