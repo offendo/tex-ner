@@ -20,6 +20,7 @@ softmax = lambda x: np.exp(x)/np.exp(x).sum(axis=-1).reshape(-1, 1)
 df = pd.concat([pd.read_json(f'results/$NAME.{split}.preds.json') for split in ['test', 'val']])
 df['probs'] = df.logits.apply(lambda x: softmax(np.stack([np.array(y) for y in x], axis=0)).tolist())
 df = df[['labels', 'preds', 'tokens', 'probs']].explode(['labels', 'preds', 'tokens', 'probs'])
+df['probs'] = df['probs'].apply(lambda xs: ', '.join([f"{x:0.2f}" for x in xs]))
 df.to_csv('outputs.csv', sep='\t', index=False, float_format=lambda x: '%.2f')
 
 p, r, f, s = prfs(df.labels, df.preds, average=None, labels=[l for l in df.labels.unique() if l != 'O'] )

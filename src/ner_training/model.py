@@ -16,7 +16,7 @@ from ner_training.utils import PAD_TOKEN_ID
 
 @dataclass
 class CRFOutput(TokenClassifierOutput):
-    predictions: list[list[int]] | torch.Tensor | None = None
+    predictions: torch.Tensor | None = None
 
 
 class BertWithCRF(nn.Module):
@@ -94,16 +94,22 @@ class BertWithCRF(nn.Module):
         B, N = input_ids.shape
         logits = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=input_ids.device)
         for idx in range(math.ceil(N / 512)):
+            start = idx * self.ctx
+            end = idx * self.ctx + self.ctx
             outputs = self.bert(
-                input_ids=input_ids[:, idx * self.ctx : idx * self.ctx + self.ctx],
-                attention_mask=attention_mask[:, idx * self.ctx : idx * self.ctx + self.ctx],
-                labels=(
-                    labels[:, idx * self.ctx : idx * self.ctx + self.ctx].contiguous() if labels is not None else None
-                ),
+                input_ids=input_ids[:, start:end],
+                attention_mask=attention_mask[:, start:end],
+                labels=labels[:, start:end].contiguous() if labels is not None else None,
             )
-            logits[:, idx * self.ctx : idx * self.ctx + self.ctx, :] = outputs.logits
-        is_pad = labels == -100
-        crf_out = self.crf(logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="token_mean")
+            logits[:, start:end, :] = outputs.logits
+
+        loss = None
+        if labels is not None:
+            is_pad = labels == -100
+            crf_out = self.crf(
+                logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="token_mean"
+            )
+            loss = -crf_out
 
         if not self.training:
             preds = pad_sequence(
@@ -113,10 +119,6 @@ class BertWithCRF(nn.Module):
             )
         else:
             preds = None
-
-        loss = None
-        if labels is not None:
-            loss = -crf_out
 
         return CRFOutput(
             loss=loss,

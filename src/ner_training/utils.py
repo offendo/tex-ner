@@ -157,3 +157,37 @@ def create_name_or_ref_tags(data: pd.DataFrame, tokenizer: PreTrainedTokenizer, 
         records.append({"tex": tex, "tokens": tokens, "tags": merged_tags})
 
     return pd.DataFrame.from_records(records)
+
+
+def postprocess(tags: list[str]):
+    return tags
+
+
+def convert_tags_to_annotations(tokens: list[str], tags: list[str], tokenizer: PreTrainedTokenizer):
+    annotations = []
+    current_tags = set()
+    current_annos = {
+        "definition": [],
+        "theorem": [],
+        "proof": [],
+        "example": [],
+    }
+    for idx, (tok, tag) in enumerate(zip(tokens, postprocess(tags))):
+        labels = [l for l in tag.split("-") if l != "O"]
+        to_remove = set()
+        for cur in current_tags:
+            # If it's not in the new list, we finished an annotation
+            if cur not in labels:
+                toks = current_annos[cur]
+                mmd = tokenizer.convert_tokens_to_string(toks)
+                start = len(tokenizer.convert_tokens_to_string(tokens[: idx - len(toks)]))
+                end = start + len(mmd)
+                annotations.append({"tex": mmd, "tag": cur, "end_token_idx": idx, "start": start, "end": end - 1})
+                current_annos[cur] = []
+                to_remove.add(cur)
+        current_tags.difference_update(to_remove)
+
+        for lab in labels:
+            current_annos[lab].append(tok)
+            current_tags.add(lab)
+    return annotations

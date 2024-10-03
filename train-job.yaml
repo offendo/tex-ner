@@ -24,7 +24,7 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: base-fixed-crf-long
+              value: base-crf-post-incomplete-tune
             - name: CRF
               value: "--crf"
             - name: CLASSES
@@ -32,23 +32,23 @@ spec:
             - name: DO_TRAIN
               value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 2000"
+              value: "--steps 1641"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE
-              value: "0.00007411299781083247"
+              value: "0.00008178476574339552"
             - name: BATCH_SIZE
               value: "16"
             - name: LABEL_SMOOTHING
-              value: "0.03251833220267471"
+              value: "0.07132447872229951"
             - name: WARMUP_RATIO
-              value: "0.009541011649041132"
+              value: "0.056124342584770115"
             - name: DROPOUT
               value: "0.0"
             - name: WEIGHT_DECAY
-              value: "0.00001295551724066219"
+              value: "0.00001408577102296383"
             - name: SCHEDULER
-              value: "cosine"
+              value: "inverse_sqrt"
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:

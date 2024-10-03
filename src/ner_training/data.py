@@ -41,6 +41,37 @@ from transformers.modeling_outputs import TokenClassifierOutput
 from ner_training.utils import create_name_or_ref_tags, PAD_TOKEN_ID, convert_label_to_idx
 
 
+def load_mmd(
+    path: str | Path,
+    tokenizer: PreTrainedTokenizer,
+    context_len: int = 512,
+):
+    with open(path) as f:
+        data = f.read()
+
+    tokens = tokenizer(data)
+    n_tokens = len(tokens.input_ids)
+    all_examples = []
+    for idx in range(math.ceil(n_tokens / context_len)):
+        input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
+        mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
+        all_examples.append({"input_ids": input_ids, "attention_mask": mask, "file": str(path)})
+    return all_examples
+
+
+def load_mmd_data(
+    data_dir: str | Path,
+    tokenizer: PreTrainedTokenizer,
+    context_len: int,
+):
+    examples = []
+    for mmd in os.listdir(data_dir):
+        file_exs = load_mmd(Path(data_dir, mmd), tokenizer=tokenizer, context_len=context_len)
+        examples.extend(file_exs)
+
+    return Dataset.from_list(examples)
+
+
 def load_file_name_or_ref(
     path: str | Path,
     label2id: dict[str, int],

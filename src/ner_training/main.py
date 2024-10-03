@@ -14,6 +14,7 @@ import ray
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader
 import wandb
 from datasets import Dataset, DatasetDict
 from more_itertools import chunked, flatten
@@ -37,7 +38,7 @@ from transformers import (
 )
 from transformers.modeling_outputs import TokenClassifierOutput
 
-from ner_training.data import load_data
+from ner_training.data import load_data, load_mmd_data
 from ner_training.model import BertWithCRF
 from ner_training.utils import *
 
@@ -76,7 +77,9 @@ class CRFTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-def predict(model: BertWithCRF, dataset: Iterable, batch_size: int, data_collator: Callable, label2id: dict[str, int]):
+def run_predict(
+    model: BertWithCRF, dataset: Iterable, batch_size: int, data_collator: Callable, label2id: dict[str, int]
+):
     preds = []
     logits = []
     labels = []
@@ -90,7 +93,7 @@ def predict(model: BertWithCRF, dataset: Iterable, batch_size: int, data_collato
         logits.extend(batch_out.logits.detach().numpy())
         if hasattr(batch_out, "predictions") and batch_out.predictions is not None:
             preds.extend(batch_out.predictions)
-        if inputs["labels"] is not None:
+        if "labels" in inputs:
             labels.extend(inputs["labels"])
 
     # Decode
@@ -558,8 +561,103 @@ def tune(
     return best_trial
 
 
+@click.command()
+@click.option("--model", type=str)
+@click.option("--crf", is_flag=True)
+@click.option("--checkpoint", default=None, type=click.Path(exists=True))
+@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, writable=True, resolve_path=True))
+@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
+@click.option("--definition", is_flag=True)
+@click.option("--theorem", is_flag=True)
+@click.option("--proof", is_flag=True)
+@click.option("--example", is_flag=True)
+@click.option("--reference", is_flag=True)
+@click.option("--name", is_flag=True)
+@click.option("--context_len", default=512, type=int)
+@click.option("--batch_size", default=8)
+@click.option("--debug", is_flag=True)
+def predict(
+    model: str,
+    crf: bool,
+    checkpoint: Path | None,
+    definition: bool,
+    theorem: bool,
+    proof: bool,
+    example: bool,
+    name: bool,
+    reference: bool,
+    context_len: int,
+    data_dir: Path,
+    output_dir: Path,
+    batch_size: int,
+    debug: bool,
+):
+    label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
+    logging.info(f"Label map: {label2id}")
+
+    id2label = {v: k for k, v in label2id.items()}
+    ner_model = load_model(
+        model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, checkpoint=checkpoint, dropout=0.0
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model)
+
+    # Data loading
+    data = load_mmd_data(
+        data_dir,
+        tokenizer=tokenizer,
+        context_len=context_len,
+    )
+    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
+
+    # Run the predictions
+    ner_model.eval()
+    data = data.select(range(20))
+    loader = DataLoader(data.remove_columns(["file"]), batch_size=batch_size, shuffle=False, collate_fn=collator)
+    all_predictions = []
+    for idx, batch in enumerate(tqdm(loader), start=1):
+        if idx % 100 == 0:
+            total = len(all_predictions)
+            output = {
+                "file": data["file"][:total],
+                "preds": [[id2label[p] for p in pp if p != PAD_TOKEN_ID] for pp in all_predictions],
+                "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"][:total]],
+            }
+            test_df = pd.DataFrame(output)
+            # flatten each file's output into one row
+            test_df = test_df.groupby("file").agg(lambda xs: [y for x in xs for y in x]).reset_index()
+            test_df.to_json(Path(output_dir, f"mmd.preds-{idx}.json"))
+            Path(output_dir, f"mmd.preds-{idx-1}.json").unlink(missing_ok=True)
+
+        batch_out = ner_model.forward(
+            input_ids=batch["input_ids"].to(ner_model.bert.device),
+            attention_mask=batch["attention_mask"].to(ner_model.bert.device),
+            labels=batch["labels"].to(ner_model.bert.device) if "labels" in batch else None,
+        )
+        assert isinstance(batch_out.predictions, torch.Tensor)
+        all_predictions.extend(batch_out.predictions.tolist())
+
+    output = {
+        "file": data["file"],
+        "preds": [[id2label[p] for p in pp if p != PAD_TOKEN_ID] for pp in all_predictions],
+        "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"]],
+    }
+    test_df = pd.DataFrame(output)
+
+    # flatten each file's output into one row
+    test_df = test_df.groupby("file").agg(lambda xs: [y for x in xs for y in x]).reset_index()
+    test_df.to_json(Path(output_dir, f"mmd.preds.json"))
+
+    # Conver the predictions to a list of annotations
+    # TODO figure out how to get start/end indices
+    for idx, row in test_df.iterrows():
+        annos = convert_tags_to_annotations(tokens=row.tokens, tags=row.preds, tokenizer=tokenizer)
+        anno_df = pd.DataFrame.from_records(annos)
+        anno_df.to_json(Path(output_dir, f"{Path(row.file).stem}.annos.json"))
+
+
 if __name__ == "__main__":
     cli.add_command(train)
     cli.add_command(test)
+    cli.add_command(predict)
     cli.add_command(tune)
     cli()
