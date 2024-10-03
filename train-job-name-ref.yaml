@@ -24,7 +24,7 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: name-ref-fixed-crf-3
+              value: name-ref-finetuned
             - name: CRF
               value: "--crf"
             - name: CLASSES
@@ -32,7 +32,7 @@ spec:
             - name: DO_TRAIN
               value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 1948 --checkpoint /volume/ner/outputs/name-ref-first-name-then-both/checkpoint-best"
+              value: "--steps 1948 --checkpoint /volume/ner/outputs/name-only-base-model/checkpoint-best/"
             - name: DATASET
               value: roberta-base-refs
             - name: LEARNING_RATE

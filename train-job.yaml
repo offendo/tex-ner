@@ -24,7 +24,7 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: base-fixed-crf
+              value: base-fixed-crf-long
             - name: CRF
               value: "--crf"
             - name: CLASSES
@@ -32,13 +32,13 @@ spec:
             - name: DO_TRAIN
               value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 1000"
+              value: "--steps 2000"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE
               value: "0.00007411299781083247"
             - name: BATCH_SIZE
-              value: "8"
+              value: "16"
             - name: LABEL_SMOOTHING
               value: "0.03251833220267471"
             - name: WARMUP_RATIO
