@@ -611,7 +611,6 @@ def predict(
 
     # Run the predictions
     ner_model.eval()
-    data = data.select(range(20))
     loader = DataLoader(data.remove_columns(["file"]), batch_size=batch_size, shuffle=False, collate_fn=collator)
     all_predictions = []
     for idx, batch in enumerate(tqdm(loader), start=1):
