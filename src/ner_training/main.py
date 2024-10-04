@@ -39,7 +39,7 @@ from transformers import (
 from transformers.modeling_outputs import TokenClassifierOutput
 
 from ner_training.data import load_data, load_mmd_data
-from ner_training.model import BertWithCRF
+from ner_training.model import BertWithCRF, StackedBERTWithCRF
 from ner_training.utils import *
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -111,19 +111,33 @@ def load_model(
     randomize_last_layer: bool = False,
     freeze_bert: bool = False,
     freeze_crf: bool = False,
+    stacked: bool = False,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
-    model = BertWithCRF(
-        pretrained_model_name,
-        label2id=label2id,
-        id2label=id2label,
-        context_len=context_len,
-        dropout=dropout,
-        debug=debug,
-        crf=crf,
-    )
-    logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
+    if stacked:
+        model = StackedBERTWithCRF(
+            pretrained_model_name,
+            label2id=label2id,
+            id2label=id2label,
+            context_len=context_len,
+            dropout=dropout,
+            debug=debug,
+            crf=crf,
+        )
+        logging.info(f"Loaded StackedBertWithCRF model with base of {pretrained_model_name}")
+    else:
+        model = BertWithCRF(
+            pretrained_model_name,
+            label2id=label2id,
+            id2label=id2label,
+            context_len=context_len,
+            dropout=dropout,
+            debug=debug,
+            crf=crf,
+        )
+        logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
+
     if checkpoint is not None:
         state_dict = {}
         from safetensors import safe_open
@@ -131,8 +145,12 @@ def load_model(
         with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
             for k in file.keys():
                 state_dict[k] = file.get_tensor(k)
-        model.load_state_dict(state_dict)
-        logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
+        try:
+            model.load_state_dict(state_dict)
+            logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
+        except:
+            model.base.load_state_dict(state_dict)
+            logging.info(f"Loaded checkpoint for base model from {Path(checkpoint, 'model.safetensors')}")
 
     # Freeze BERT if needed
     if freeze_bert:
@@ -166,31 +184,15 @@ def load_model(
     return model
 
 
-def compute_crf_metrics(eval_out: tuple):
-    preds, labels = eval_out
-    classes = [cls for cls in label2id.values() if cls != 0]
-    preds = list(flatten(preds))
-
-    ls = [l for l in labels.ravel() if l != -100]
-    ps = [p for p, l in zip(preds, labels.ravel()) if l != -100]
-
-    if len(label2id) == 2:
-        p, r, f, _ = precision_recall_fscore_support(ls, ps, average="binary", pos_label=1)
-    else:
-        p, r, f, _ = precision_recall_fscore_support(ls, ps, average="micro", labels=classes)
-    return dict(precision=p, recall=r, f1=f)
-
-
 def make_compute_metrics(label2id):
     def compute_metrics(eval_out: EvalPrediction):
-        logits_and_preds, labels = eval_out
+        logits_and_preds = eval_out.predictions
+        labels = eval_out.label_ids
         assert isinstance(labels, np.ndarray)
 
         if isinstance(logits_and_preds, tuple):
             logits = logits_and_preds[0]
             preds = logits_and_preds[1]
-            # if preds.shape == logits.shape:
-            #     preds = np.argmax(logits, axis=-1)
         else:
             logits = logits_and_preds
             preds = np.argmax(logits, axis=-1)
@@ -243,6 +245,7 @@ def cli():
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
+@click.option("--stacked", is_flag=True)
 def train(
     model: str,
     crf: bool,
@@ -272,6 +275,7 @@ def train(
     examples_as_theorems: bool,
     train_only_tags: list[str] | None,
     checkpoint: Path | None,
+    stacked: bool,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
@@ -286,6 +290,7 @@ def train(
         randomize_last_layer=randomize_last_layer,
         freeze_bert=freeze_bert,
         freeze_crf=freeze_crf,
+        stacked=stacked,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
@@ -367,6 +372,7 @@ def train(
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
+@click.option("--stacked", is_flag=True)
 def test(
     model: str,
     crf: bool,
@@ -385,13 +391,21 @@ def test(
     debug: bool,
     examples_as_theorems: bool,
     train_only_tags: list[str],
+    stacked: bool,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
 
     id2label = {v: k for k, v in label2id.items()}
     ner_model = load_model(
-        model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, checkpoint=checkpoint, dropout=0.0
+        model,
+        crf=crf,
+        context_len=context_len,
+        label2id=label2id,
+        debug=debug,
+        checkpoint=checkpoint,
+        dropout=0.0,
+        stacked=stacked,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
@@ -467,6 +481,7 @@ def test(
 @click.option("--debug", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
+@click.option("--stacked", is_flag=True)
 def tune(
     model: str,
     crf: bool,
@@ -486,6 +501,7 @@ def tune(
     debug: bool,
     examples_as_theorems: bool,
     train_only_tags: list[str] | None,
+    stacked: bool,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
 
@@ -534,13 +550,14 @@ def tune(
         use_cpu=DEVICE == "cpu",
     )
     trainer = Trainer(
-        model=None,
         args=args,
         train_dataset=data["train"],
         eval_dataset=data["val"],
         compute_metrics=make_compute_metrics(label2id),
         tokenizer=tokenizer,
-        model_init=make_model_init(model, label2id=label2id, debug=debug, crf=crf, context_len=context_len),
+        model_init=make_model_init(
+            model, label2id=label2id, debug=debug, crf=crf, context_len=context_len, stacked=stacked
+        ),
         data_collator=collator,
     )
     best_trial = trainer.hyperparameter_search(
@@ -616,10 +633,13 @@ def predict(
     for idx, batch in enumerate(tqdm(loader), start=1):
         if idx % 100 == 0:
             total = len(all_predictions)
+            start = max([total - 100, 0])
             output = {
-                "file": data["file"][:total],
-                "preds": [[id2label[p] for p in pp if p != PAD_TOKEN_ID] for pp in all_predictions],
-                "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"][:total]],
+                "file": data["file"][start:total],
+                "preds": [[id2label[p] for p in pp if p != PAD_TOKEN_ID] for pp in all_predictions[start:total]],
+                "tokens": [
+                    [tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"][start:total]
+                ],
             }
             test_df = pd.DataFrame(output)
             # flatten each file's output into one row

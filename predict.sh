@@ -18,5 +18,5 @@ python src/ner_training/main.py predict \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     $CLASSES \
     --data_dir /volume/pdfocr/mmds/ \
-    --output_dir /volume/ner/outputs/mmd-preds/
+    --output_dir /volume/ner/outputs/mmd-preds-2/
 
