@@ -443,14 +443,6 @@ def test(
             (logits, preds), labels, metrics = trainer.predict(data[split])  # type:ignore
             preds = np.argmax(logits, axis=-1)
             logging.info(pformat(metrics))
-            # outputs = predict(ner_model, data[split], batch_size, collator, label2id)
-            # logits = outputs["logits"]
-            # preds = outputs["predictions"]
-            # preds = pad_sequence([p.detach() for p in preds], batch_first=True, padding_value=PAD_TOKEN_ID).numpy()
-            # labels = outputs["labels"]
-            # labels = pad_sequence([l.detach() for l in labels], batch_first=True, padding_value=PAD_TOKEN_ID).numpy()
-
-            # metrics = make_compute_metrics(label2id)(EvalPrediction(predictions=(logits, preds), label_ids=labels))
 
         output = {
             "labels": [[id2label[l] for l in ll if l != PAD_TOKEN_ID] for ll in labels],
