@@ -102,7 +102,7 @@ class BertWithCRF(nn.Module):
         if labels is not None:
             is_pad = labels == -100
             crf_out = self.crf.forward(
-                outputs.logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="mean"
+                outputs.logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="token_mean"
             )
             loss = -crf_out
 
@@ -239,7 +239,7 @@ class StackedBERTWithCRF(nn.Module):
             return_predictions=True,
         )
 
-        bert_preds = bert_output.predictions.masked_fill(bert_output.predictions == PAD_TOKEN_ID, self.tag_pad_token)
+        bert_preds = bert_output.predictions.masked_fill(input_ids == PAD_TOKEN_ID, self.tag_pad_token)
         x = self.tag_embedding(bert_preds)
         x = self.stack.forward(x, src_key_padding_mask=(bert_preds == self.tag_pad_token).T)
         logits = self.head(x)
@@ -247,11 +247,10 @@ class StackedBERTWithCRF(nn.Module):
         loss = None
         if labels is not None:
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
-            loss += bert_output.loss
 
         return TokenClassifierOutput(
-            loss=bert_output.loss,
-            logits=bert_output.logits,
+            loss=loss,
+            logits=logits,
             hidden_states=None,
             attentions=None,
         )
