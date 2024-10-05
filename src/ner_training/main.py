@@ -67,9 +67,10 @@ class CRFTrainer(Trainer):
         labels = inputs.get("labels")
         # forward pass
         outputs = model(**inputs)
-        if self.crf:
-            loss = outputs[0]
+        if model.crf is not None:
+            loss = outputs.loss
             return (loss, outputs) if return_outputs else loss
+
         logits = outputs.get("logits")
         # compute custom loss
         loss_fct = nn.CrossEntropyLoss(weight=self.class_weights)
@@ -109,7 +110,7 @@ def load_model(
     dropout: float = 0.0,
     checkpoint: str | Path | None = None,
     randomize_last_layer: bool = False,
-    freeze_bert: bool = False,
+    freeze_base: bool = False,
     freeze_crf: bool = False,
     stacked: bool = False,
 ):
@@ -153,14 +154,14 @@ def load_model(
             logging.info(f"Loaded checkpoint for base model from {Path(checkpoint, 'model.safetensors')}")
 
     # Freeze BERT if needed
-    if freeze_bert:
+    if freeze_base:
         if hasattr(model.bert, "roberta"):
-            bert = model.bert.roberta.encoder
+            bert = model.bert.roberta
         elif hasattr(model.bert, "bert"):
-            bert = model.bert.bert.encoder
+            bert = model.bert.bert
         for param in bert.parameters():
             param.requires_grad = False
-        logging.info("Froze bert encoder.")
+        logging.info("Froze base model.")
 
     # Freeze CRF if needed
     if freeze_crf and model.crf is not None:
@@ -240,7 +241,7 @@ def cli():
 @click.option("--debug", is_flag=True)
 @click.option("--use_class_weights", is_flag=True)
 @click.option("--randomize_last_layer", is_flag=True)
-@click.option("--freeze_bert", is_flag=True)
+@click.option("--freeze_base", is_flag=True)
 @click.option("--freeze_crf", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
@@ -270,7 +271,7 @@ def train(
     debug: bool,
     use_class_weights: bool,
     randomize_last_layer: bool,
-    freeze_bert: bool,
+    freeze_base: bool,
     freeze_crf: bool,
     examples_as_theorems: bool,
     train_only_tags: list[str] | None,
@@ -288,7 +289,7 @@ def train(
         dropout=dropout,
         checkpoint=checkpoint,
         randomize_last_layer=randomize_last_layer,
-        freeze_bert=freeze_bert,
+        freeze_base=freeze_base,
         freeze_crf=freeze_crf,
         stacked=stacked,
     )

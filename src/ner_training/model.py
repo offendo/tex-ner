@@ -93,28 +93,22 @@ class BertWithCRF(nn.Module):
         assert self.crf is not None
         # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
         B, N = input_ids.shape
-        logits = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=input_ids.device)
-        for idx in range(math.ceil(N / 512)):
-            start = idx * self.ctx
-            end = idx * self.ctx + self.ctx
-            outputs = self.bert(
-                input_ids=input_ids[:, start:end],
-                attention_mask=attention_mask[:, start:end],
-                labels=labels[:, start:end].contiguous() if labels is not None else None,
-            )
-            logits[:, start:end, :] = outputs.logits
-
+        outputs = self.bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=labels if labels is not None else None,
+        )
         loss = None
         if labels is not None:
             is_pad = labels == -100
-            crf_out = self.crf(
-                logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="token_mean"
+            crf_out = self.crf.forward(
+                outputs.logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="mean"
             )
             loss = -crf_out
 
         if return_predictions or not self.training:
             preds = pad_sequence(
-                [torch.tensor(t) for t in self.crf.decode(logits, mask=attention_mask.bool())],
+                [torch.tensor(t) for t in self.crf.decode(outputs.logits, mask=attention_mask.bool())],
                 padding_value=PAD_TOKEN_ID,
                 batch_first=True,
             )
@@ -123,7 +117,7 @@ class BertWithCRF(nn.Module):
 
         return CRFOutput(
             loss=loss,
-            logits=logits,  # type:ignore
+            logits=outputs.logits,  # type:ignore
             hidden_states=None,
             attentions=None,
             predictions=preds,
@@ -143,7 +137,7 @@ class BertWithCRF(nn.Module):
         return_dict: Optional[bool] = None,
         return_predictions: Optional[bool] = None,
     ) -> CRFOutput:
-        if self.crf:
+        if self.crf is not None:
             return self.crf_forward(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -157,6 +151,7 @@ class BertWithCRF(nn.Module):
                 return_dict=return_dict,
                 return_predictions=return_predictions,
             )
+
         return self.no_crf_forward(
             input_ids=input_ids,
             attention_mask=attention_mask,
