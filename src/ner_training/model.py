@@ -102,7 +102,7 @@ class BertWithCRF(nn.Module):
         if labels is not None:
             is_pad = labels == -100
             crf_out = self.crf.forward(
-                outputs.logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="token_mean"
+                outputs.logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="mean"
             )
             loss = -crf_out
 
