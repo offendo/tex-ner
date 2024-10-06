@@ -500,13 +500,13 @@ def tune(
 
     def raytune_hp_space(trial):
         return {
-            "learning_rate": ray.tune.loguniform(1e-6, 1e-3),
+            "learning_rate": ray.tune.loguniform(1e-6, 1e-1),
             "per_device_train_batch_size": ray.tune.choice([4, 8, 16, 32]),
             "warmup_ratio": ray.tune.uniform(0.0, 0.1),
             "weight_decay": ray.tune.loguniform(1e-6, 1e-3),
             "lr_scheduler_type": ray.tune.choice(["linear", "cosine", "inverse_sqrt"]),
             "label_smoothing_factor": ray.tune.uniform(0.0, 0.1),
-            "max_steps": ray.tune.uniform(500, 2000),
+            "max_steps": ray.tune.uniform(1000, 4000),
         }
 
     def make_model_init(*args, **kwargs):
@@ -542,7 +542,7 @@ def tune(
         metric_for_best_model="f1",
         use_cpu=DEVICE == "cpu",
     )
-    trainer = Trainer(
+    trainer = CRFTrainer(
         args=args,
         train_dataset=data["train"],
         eval_dataset=data["val"],
