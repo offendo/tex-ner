@@ -542,8 +542,7 @@ def tune(
         logging_steps=logging_steps,
         eval_strategy="steps",
         eval_steps=50,
-        save_strategy="steps",
-        save_steps=steps,
+        save_strategy="no",
         metric_for_best_model="f1",
         use_cpu=DEVICE == "cpu",
     )
