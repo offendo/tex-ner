@@ -591,6 +591,7 @@ def tune(
 @click.option("--context_len", default=512, type=int)
 @click.option("--batch_size", default=8)
 @click.option("--debug", is_flag=True)
+@click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
 def predict(
     model: str,
     crf: bool,
@@ -606,6 +607,7 @@ def predict(
     output_dir: Path,
     batch_size: int,
     debug: bool,
+    crf_loss_reduction: str,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
