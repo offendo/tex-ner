@@ -18,7 +18,7 @@ python src/ner_training/main.py tune \
     --model FacebookAI/roberta-base \
     --crf \
     --definition --theorem --proof --example \
-    --trials 50 \
+    --trials 100 \
     --data_dir /volume/ner/roberta-base-semitight \
     --output_dir /volume/ner/outputs/$RUN_NAME \
     --crf_loss_reduction mean
