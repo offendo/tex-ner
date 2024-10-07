@@ -1,9 +1,21 @@
 #!/bin/zsh
 
+while (( $# )); do
+  case $1 in
+    --)                 shift; positional+=("${@[@]}"); break  ;;
+    -h|--help)          printf "%s\n" $usage && return         ;;
+    -n|--name)          shift; NAME=$1                     ;;
+    -*)                 opterr $1 && return 2                  ;;
+    *)                  positional+=("${@[@]}"); break         ;;
+  esac
+  shift
+done
+
 if [[ -z $NAME ]]; then
-  echo "Error: please set the \$NAME variable to the run name."
-  exit 1
+  echo "Error: please supply run name with -n | --name."
+  exit 1;
 fi
+
 
 for SPLIT in test val; do
   kubectl cp nilay-pod:/volume/ner/outputs/$NAME/$SPLIT.preds.json results/$NAME.$SPLIT.preds.json;

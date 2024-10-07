@@ -29,6 +29,7 @@ class BertWithCRF(nn.Module):
         dropout: float = 0.0,
         debug: bool = False,
         crf: bool = False,
+        crf_loss_reduction: str = "token_mean",
     ):
         super().__init__()
         if debug:
@@ -46,6 +47,7 @@ class BertWithCRF(nn.Module):
                 id2label=id2label,
                 hidden_dropout_prob=dropout,
             )
+        self.crf_loss_reduction = crf_loss_reduction
         self.crf = CRF(len(label2id), batch_first=True) if crf else None
         self.num_labels = len(label2id)
         self.ctx = 512  # this is only used for BERT context window, so just keep it static
@@ -102,7 +104,10 @@ class BertWithCRF(nn.Module):
         if labels is not None:
             is_pad = labels == -100
             crf_out = self.crf.forward(
-                outputs.logits, labels.masked_fill(is_pad, 0), mask=attention_mask.bool(), reduction="mean"
+                outputs.logits,
+                labels.masked_fill(is_pad, 0),
+                mask=attention_mask.bool(),
+                reduction=self.crf_loss_reduction,
             )
             loss = -crf_out
 

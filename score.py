@@ -13,18 +13,22 @@ def cli():
     pass
 
 @cli.command()
-@click.option('--predictions', '-p', type=click.Path(exists=True), required=True, multiple=True)
+@click.option('--predictions', '-p', type=click.Path(exists=True), multiple=True)
+@click.option('--name', '-n', type=str, default=None)
 @click.option('--output', type=click.Path(exists=False), required=True)
 @click.option('--norm-all', 'norm', is_flag=True, flag_value='all')
 @click.option('--norm-pred', 'norm', is_flag=True, flag_value='pred')
 @click.option('--norm-true', 'norm', is_flag=True, flag_value='true')
 @click.option('--show', is_flag=True)
 def heatmap(
-    predictions: list[Path],
+    predictions: list[Path | str],
+    name: str,
     output: Path,
     norm: Optional[str],
     show: bool,
 ):
+    if name is not None:
+        predictions = [f"results/{name}.test.preds.json", f"results/{name}.val.preds.json"]
     df = pd.concat([pd.read_json(pred) for pred in predictions])
     labels = [l for l in df.labels.explode().unique()]
     fig = plt.figure(figsize=(10,10))
@@ -36,12 +40,16 @@ def heatmap(
         input()
 
 @cli.command()
-@click.option('--predictions', '-p', type=click.Path(exists=True), required=True, multiple=True)
+@click.option('--predictions', '-p', type=click.Path(exists=True), multiple=True)
+@click.option('--name', '-n', type=str, default=None)
 @click.option('--average', type=str, required=True)
 def multilabel(
-    predictions: list[Path],
+    predictions: list[Path | str],
+    name: str,
     average: str
 ):
+    if name is not None:
+        predictions = [f"results/{name}.test.preds.json", f"results/{name}.val.preds.json"]
     df = pd.concat([pd.read_json(pred) for pred in predictions])
     classes = [l for l in df.labels.explode().str.split('-').explode().unique() if l != 'O']
     print('Labels: ', classes)
@@ -52,12 +60,16 @@ def multilabel(
     pprint(dict(precision=p * 100, recall = r * 100, f1=f * 100))
 
 @cli.command()
-@click.option('--predictions', '-p', type=click.Path(exists=True), required=True, multiple=True)
+@click.option('--predictions', '-p', type=click.Path(exists=True), multiple=True)
+@click.option('--name', '-n', type=str, default=None)
 @click.option('--average', type=str, required=True)
 def multiclass(
-    predictions: list[Path],
+    predictions: list[Path | str],
+    name: str,
     average: str
 ):
+    if name is not None:
+        predictions = [f"results/{name}.test.preds.json", f"results/{name}.val.preds.json"]
     df = pd.concat([pd.read_json(pred) for pred in predictions])
     labels = df.labels.explode()
     preds = df.preds.explode()

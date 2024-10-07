@@ -113,6 +113,7 @@ def load_model(
     freeze_base: bool = False,
     freeze_crf: bool = False,
     stacked: bool = False,
+    crf_loss_reduction: str = "token_mean",
 ):
     id2label = {v: k for k, v in label2id.items()}
 
@@ -136,6 +137,7 @@ def load_model(
             dropout=dropout,
             debug=debug,
             crf=crf,
+            crf_loss_reduction=crf_loss_reduction,
         )
         logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
 
@@ -247,6 +249,7 @@ def cli():
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
 @click.option("--stacked", is_flag=True)
+@click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
 def train(
     model: str,
     crf: bool,
@@ -277,6 +280,7 @@ def train(
     train_only_tags: list[str] | None,
     checkpoint: Path | None,
     stacked: bool,
+    crf_loss_reduction: str,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
@@ -292,6 +296,7 @@ def train(
         freeze_base=freeze_base,
         freeze_crf=freeze_crf,
         stacked=stacked,
+        crf_loss_reduction=crf_loss_reduction,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
