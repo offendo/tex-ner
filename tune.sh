@@ -21,4 +21,4 @@ python src/ner_training/main.py tune \
     --trials 100 \
     --data_dir /volume/ner/roberta-base-semitight \
     --output_dir /volume/ner/outputs/$RUN_NAME \
-    --crf_loss_reduction mean
+    --crf_loss_reduction token_mean
