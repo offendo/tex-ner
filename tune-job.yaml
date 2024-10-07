@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-tune
+  name: nilay-ner-tune-base
 spec:
   template:
     spec:
@@ -24,6 +24,9 @@ spec:
           image: ghcr.io/offendo/ner:latest
           command: ["bash", "tune.sh"]
           workingDir: /app/tex-ner
+          env:
+            - name: RUN_NAME
+              value: tune-base-mean
           volumeMounts:
             - name: git-repo
               mountPath: /app
