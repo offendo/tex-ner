@@ -9,7 +9,7 @@ pip install -U .
 
 echo "Beginning run $RUN_NAME"
 mkdir -p "/volume/ner/outputs/$RUN_NAME"
-mkdir -p "/volume/ner/outputs/mmd-preds/"
+mkdir -p "/volume/ner/outputs/mmds-$RUN_NAME/"
 
 # Run testing
 python src/ner_training/main.py predict \
@@ -18,5 +18,5 @@ python src/ner_training/main.py predict \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     $CLASSES \
     --data_dir /volume/pdfocr/mmds/ \
-    --output_dir /volume/ner/outputs/mmd-preds-2/
+    --output_dir /volume/ner/outputs/mmds-$RUN_NAME/
 
