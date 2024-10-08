@@ -1,4 +1,4 @@
-from pprint import pprint
+from pprint import pprint, pformat
 from typing import Optional
 import pandas as pd
 import seaborn as sns
@@ -6,7 +6,17 @@ from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
 from pathlib import Path
 import matplotlib.pyplot as plt
 import click
+import json
 from sklearn.preprocessing import MultiLabelBinarizer
+
+
+def prettyprint(d):
+    s = pformat(d, indent=4, width=50)
+    print(json.dumps(d, indent=2))
+    return json.dumps(d)
+
+def pretty(f):
+    return f"{f:0.2f}"
 
 @click.group()
 def cli():
@@ -28,7 +38,7 @@ def heatmap(
     show: bool,
 ):
     if name is not None:
-        predictions = [f"results/{name}.test.preds.json", f"results/{name}.val.preds.json"]
+        predictions = [f"results/{name}/test.preds.json", f"results/{name}/val.preds.json"]
     df = pd.concat([pd.read_json(pred) for pred in predictions])
     labels = [l for l in df.labels.explode().unique()]
     fig = plt.figure(figsize=(10,10))
@@ -42,51 +52,53 @@ def heatmap(
 @cli.command()
 @click.option('--predictions', '-p', type=click.Path(exists=True), multiple=True)
 @click.option('--name', '-n', type=str, default=None)
-@click.option('--average', type=str, required=True)
+@click.option('--average', type=str, required=False, default=None)
 def multilabel(
     predictions: list[Path | str],
     name: str,
     average: str
 ):
     if name is not None:
-        predictions = [f"results/{name}.test.preds.json", f"results/{name}.val.preds.json"]
+        predictions = [f"results/{name}/test.preds.json", f"results/{name}/val.preds.json"]
     df = pd.concat([pd.read_json(pred) for pred in predictions])
     classes = [l for l in df.labels.explode().str.split('-').explode().unique() if l != 'O']
-    print('Labels: ', classes)
     mlb = MultiLabelBinarizer(classes=classes)
     labels = mlb.fit_transform(df.labels.explode().str.split('-'))
     preds = mlb.transform(df.preds.explode().str.split('-'))
     p, r, f, _ = precision_recall_fscore_support(labels, preds, average=average)
-    pprint(dict(precision=p * 100, recall = r * 100, f1=f * 100))
+    if average is None:
+        metrics = {}
+        for pp, rr, ff, c in zip(p, r, f, classes):
+            metrics[c] = dict(precision=pretty(pp * 100), recall =pretty(rr * 100), f1=pretty(ff * 100))
+    else:
+        metrics = dict(precision=pretty(p * 100), recall = pretty(r * 100), f1=pretty(f * 100))
+    prettyprint(metrics)
 
 @cli.command()
 @click.option('--predictions', '-p', type=click.Path(exists=True), multiple=True)
 @click.option('--name', '-n', type=str, default=None)
-@click.option('--average', type=str, required=True)
+@click.option('--average', type=str, required=False, default=None)
 def multiclass(
     predictions: list[Path | str],
     name: str,
     average: str
 ):
     if name is not None:
-        predictions = [f"results/{name}.test.preds.json", f"results/{name}.val.preds.json"]
+        predictions = [f"results/{name}/test.preds.json", f"results/{name}/val.preds.json"]
     df = pd.concat([pd.read_json(pred) for pred in predictions])
     labels = df.labels.explode()
     preds = df.preds.explode()
-    if average.lower() == 'none':
-        average = None
     classes = [l for l in labels.unique() if l != 'O']
     p, r, f, _ = precision_recall_fscore_support(labels, preds, average=average, labels=classes)
     metrics = {}
     if average is None:
-        for i, cls in enumerate(classes):
-            metrics[f"{cls}_precision"] = p[i]
-            metrics[f"{cls}_recall"] = r[i]
-            metrics[f"{cls}_f1"] = f[i]
+        metrics = {}
+        for pp, rr, ff, c in zip(p, r, f, classes):
+            metrics[c] = dict(precision=pretty(pp * 100), recall =pretty(rr * 100), f1=pretty(ff * 100))
     else:
-        metrics = dict(precision=p * 100, recall = r * 100, f1=f * 100)
+        metrics = dict(precision=pretty(p * 100), recall = pretty(r * 100), f1=pretty(f * 100))
 
-    pprint(metrics)
+    prettyprint(metrics)
 
 if __name__ == "__main__":
     cli()

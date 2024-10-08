@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 # Login
 huggingface-cli login --token $(cat /etc/api-tokens/hf-token)
@@ -13,34 +13,40 @@ if [[ -z $RUN_NAME ]]; then
   echo "Error: empty RUN_NAME"
   exit 1
 fi
-
-echo "Beginning run $RUN_NAME"
-mkdir -p "/volume/ner/outputs/$RUN_NAME"
-
-# Run training
-export WANDB_RUN="$RUN_NAME"
-if [[ $DO_TRAIN = 'true' ]]; then
-  python src/ner_training/main.py train \
-    --model FacebookAI/roberta-base \
-    $CRF \
-    $CLASSES \
-    $TRAIN_FLAGS \
-    --learning_rate $LEARNING_RATE \
-    --batch_size $BATCH_SIZE \
-    --label_smoothing_factor $LABEL_SMOOTHING \
-    --warmup_ratio $WARMUP_RATIO \
-    --dropout $DROPOUT \
-    --weight_decay $WEIGHT_DECAY \
-    --scheduler $SCHEDULER \
-    --data_dir /volume/ner/$DATASET \
-    --output_dir /volume/ner/outputs/$RUN_NAME
+if [[ -z $NTRIALS ]]; then
+  NTRIALS=1
 fi
 
-# Run testing
-python src/ner_training/main.py test \
-    --model FacebookAI/roberta-base \
-    $CRF \
-    --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
-    $CLASSES \
-    --data_dir /volume/ner/$DATASET \
-    --output_dir /volume/ner/outputs/$RUN_NAME
+for ((i=1; i<=$NTRIALS; i++)); do
+
+  echo "Beginning run $RUN_NAME-$i"
+  mkdir -p "/volume/ner/outputs/$RUN_NAME-$i"
+
+  # Run training
+  export WANDB_RUN="$RUN_NAME"
+  if [[ $DO_TRAIN = 'true' ]]; then
+    python src/ner_training/main.py train \
+      --model FacebookAI/roberta-base \
+      $CRF \
+      $CLASSES \
+      $TRAIN_FLAGS \
+      --learning_rate $LEARNING_RATE \
+      --batch_size $BATCH_SIZE \
+      --label_smoothing_factor $LABEL_SMOOTHING \
+      --warmup_ratio $WARMUP_RATIO \
+      --dropout $DROPOUT \
+      --weight_decay $WEIGHT_DECAY \
+      --scheduler $SCHEDULER \
+      --data_dir /volume/ner/$DATASET \
+      --output_dir /volume/ner/outputs/$RUN_NAME-$i
+  fi
+
+  # Run testing
+  python src/ner_training/main.py test \
+      --model FacebookAI/roberta-base \
+      $CRF \
+      --checkpoint /volume/ner/outputs/$RUN_NAME-$i/checkpoint-best \
+      $CLASSES \
+      --data_dir /volume/ner/$DATASET \
+      --output_dir /volume/ner/outputs/$RUN_NAME-$i
+done;
