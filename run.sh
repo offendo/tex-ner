@@ -23,7 +23,7 @@ for ((i=1; i<=$NTRIALS; i++)); do
   mkdir -p "/volume/ner/outputs/$RUN_NAME-$i"
 
   # Run training
-  export WANDB_RUN="$RUN_NAME"
+  export WANDB_RUN_NAME="$RUN_NAME"
   if [[ $DO_TRAIN = 'true' ]]; then
     python src/ner_training/main.py train \
       --model FacebookAI/roberta-base \
