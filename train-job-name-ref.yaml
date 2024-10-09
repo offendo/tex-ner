@@ -24,7 +24,7 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: name-ref-finetuned
+              value: name-and-ref-fixed-crf-finetune
             - name: CRF
               value: "--crf"
             - name: CLASSES
@@ -32,23 +32,23 @@ spec:
             - name: DO_TRAIN
               value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 1948 --checkpoint /volume/ner/outputs/name-only-base-model/checkpoint-best/"
+              value: "--steps 1948 --checkpoint /volume/ner/outputs/name-only-fixed-crf-take3/checkpoint-best"
             - name: DATASET
               value: roberta-base-refs
             - name: LEARNING_RATE
-              value: "0.00005987474910461403"
+              value: "5e-5"
             - name: BATCH_SIZE
               value: "16"
             - name: LABEL_SMOOTHING
-              value: "0.006505159298527952"
+              value: "0.1"
             - name: WARMUP_RATIO
-              value: "0.08599404067363206"
+              value: "0.05"
             - name: DROPOUT
               value: "0.0"
             - name: WEIGHT_DECAY
-              value: "0.00010988100318524612"
+              value: "0.0001"
             - name: SCHEDULER
-              value: "linear"
+              value: "inverse_sqrt"
           command: ["bash", "run.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
