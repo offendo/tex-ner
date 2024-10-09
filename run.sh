@@ -19,8 +19,14 @@ fi
 
 for ((i=1; i<=$NTRIALS; i++)); do
 
-  echo "Beginning run $RUN_NAME-$i"
-  mkdir -p "/volume/ner/outputs/$RUN_NAME-$i"
+  if [[ $NTRIALS = 1 ]]; then
+    ITER_NAME=$RUN_NAME
+  else
+    ITER_NAME=$RUN_NAME-$i
+  fi
+
+  echo "Beginning run $ITER_NAME"
+  mkdir -p "/volume/ner/outputs/$ITER_NAME"
 
   # Run training
   export WANDB_RUN_NAME="$RUN_NAME"
@@ -38,15 +44,15 @@ for ((i=1; i<=$NTRIALS; i++)); do
       --weight_decay $WEIGHT_DECAY \
       --scheduler $SCHEDULER \
       --data_dir /volume/ner/$DATASET \
-      --output_dir /volume/ner/outputs/$RUN_NAME-$i
+      --output_dir /volume/ner/outputs/$ITER_NAME
   fi
 
   # Run testing
   python src/ner_training/main.py test \
       --model FacebookAI/roberta-base \
       $CRF \
-      --checkpoint /volume/ner/outputs/$RUN_NAME-$i/checkpoint-best \
+      --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-best \
       $CLASSES \
       --data_dir /volume/ner/$DATASET \
-      --output_dir /volume/ner/outputs/$RUN_NAME-$i
+      --output_dir /volume/ner/outputs/$ITER_NAME
 done;
