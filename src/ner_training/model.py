@@ -252,7 +252,9 @@ class StackedBERTWithCRF(nn.Module):
             return_predictions=True,
         )
 
-        bert_preds = bert_output.predictions.masked_fill(~attention_mask.bool(), self.tag_pad_token)
+        bert_preds = bert_output.predictions.to(input_ids.device).masked_fill(
+            ~attention_mask.bool(), self.tag_pad_token
+        )
         tagger_output = self.tagger.forward(
             input_ids=bert_preds,
             attention_mask=attention_mask,
