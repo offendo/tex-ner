@@ -35,8 +35,11 @@ from transformers import (
     PreTrainedTokenizer,
     Trainer,
     TrainingArguments,
+    seed_everything,
 )
 from transformers.modeling_outputs import TokenClassifierOutput
+
+seed_everything(42)
 
 from ner_training.data import load_data, load_mmd_data
 from ner_training.model import BertWithCRF, StackedBERTWithCRF
