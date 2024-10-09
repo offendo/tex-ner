@@ -40,7 +40,7 @@ from transformers import (
 from transformers.modeling_outputs import TokenClassifierOutput
 
 from ner_training.data import load_data, load_mmd_data
-from ner_training.model import BertWithCRF, StackedBERTWithCRF
+from ner_training.model import BertWithCRF, StackedBertWithCRF
 from ner_training.utils import *
 
 set_seed(42)
@@ -73,11 +73,7 @@ class CRFTrainer(Trainer):
         if hasattr(outputs, "loss"):
             loss = outputs.loss
             return (loss, outputs) if return_outputs else loss
-        # if hasattr(model, "crf") and model.crf is not None:
-        #     loss = outputs.loss
-        #     return (loss, outputs) if return_outputs else loss
 
-        print("hi")
         logits = outputs.get("logits")
         # compute custom loss
         loss_fct = nn.CrossEntropyLoss(weight=self.class_weights)
@@ -126,7 +122,7 @@ def load_model(
     id2label = {v: k for k, v in label2id.items()}
 
     if stacked:
-        model = StackedBERTWithCRF(
+        model = StackedBertWithCRF(
             pretrained_model_name,
             label2id=label2id,
             id2label=id2label,
@@ -160,10 +156,10 @@ def load_model(
         if isinstance(model, BertWithCRF):
             model.load_state_dict(state_dict)
             logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
-        elif isinstance(model, StackedBERTWithCRF) and 'bert.classifier.bias' in state_dict:
+        elif isinstance(model, StackedBertWithCRF) and "bert.classifier.bias" in state_dict:
             model.base.load_state_dict(state_dict)
             logging.info(f"Loaded checkpoint for base model from {Path(checkpoint, 'model.safetensors')}")
-        elif isinstance(model, StackedBERTWithCRF) and 'base.bert.classifier.bias' in state_dict:
+        elif isinstance(model, StackedBertWithCRF) and "base.bert.classifier.bias" in state_dict:
             model.load_state_dict(state_dict)
             logging.info(f"Loaded checkpoint for base model from {Path(checkpoint, 'model.safetensors')}")
 
@@ -459,12 +455,12 @@ def test(
     )
     # Run eval on 'test' and 'val'
     for split in ["test", "val"]:
-        if hasattr(ner_model, 'crf') and ner_model.crf is None:
+        if isinstance(ner_model, StackedBertWithCRF) or (hasattr(ner_model, "crf") and ner_model.crf is None):
             logits, labels, metrics = trainer.predict(data[split])  # type:ignore
             preds = np.argmax(logits, axis=-1)
             logging.info(pformat(metrics))
         else:
-            logits, labels, metrics = trainer.predict(data[split])  # type:ignore
+            (logits, preds), labels, metrics = trainer.predict(data[split])  # type:ignore
             preds = np.argmax(logits, axis=-1)
             logging.info(pformat(metrics))
 
