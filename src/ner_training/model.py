@@ -197,7 +197,7 @@ class StackedBERTWithCRF(nn.Module):
             crf=crf,
             debug=debug,
         )
-        self.tag_pad_token = len(label2id)
+        self.tag_pad_token = 0
 
         # Freeze the base model
         for param in self.base.parameters():
@@ -252,11 +252,16 @@ class StackedBERTWithCRF(nn.Module):
             return_predictions=True,
         )
 
-        bert_preds = bert_output.predictions.to(input_ids.device).masked_fill(
+        # Shift things up by 1 so we can use 0 for padding
+        bert_preds = (bert_output.predictions + 1).to(input_ids.device).masked_fill(
             ~attention_mask.bool(), self.tag_pad_token
         )
+
         tagger_output = self.tagger.forward(
             input_ids=bert_preds,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
             attention_mask=attention_mask,
             labels=labels,
             output_attentions=output_attentions,

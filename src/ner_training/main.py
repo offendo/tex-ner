@@ -157,11 +157,14 @@ def load_model(
         with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
             for k in file.keys():
                 state_dict[k] = file.get_tensor(k)
-        try:
+        if isinstance(model, BertWithCRF):
             model.load_state_dict(state_dict)
             logging.info(f"Loaded checkpoint from {Path(checkpoint, 'model.safetensors')}")
-        except:
+        elif isinstance(model, StackedBERTWithCRF) and 'bert.classifier.bias' in state_dict:
             model.base.load_state_dict(state_dict)
+            logging.info(f"Loaded checkpoint for base model from {Path(checkpoint, 'model.safetensors')}")
+        elif isinstance(model, StackedBERTWithCRF) and 'base.bert.classifier.bias' in state_dict:
+            model.load_state_dict(state_dict)
             logging.info(f"Loaded checkpoint for base model from {Path(checkpoint, 'model.safetensors')}")
 
     # Freeze BERT if needed
@@ -456,12 +459,12 @@ def test(
     )
     # Run eval on 'test' and 'val'
     for split in ["test", "val"]:
-        if ner_model.crf is None:
+        if hasattr(ner_model, 'crf') and ner_model.crf is None:
             logits, labels, metrics = trainer.predict(data[split])  # type:ignore
             preds = np.argmax(logits, axis=-1)
             logging.info(pformat(metrics))
         else:
-            (logits, preds), labels, metrics = trainer.predict(data[split])  # type:ignore
+            logits, labels, metrics = trainer.predict(data[split])  # type:ignore
             preds = np.argmax(logits, axis=-1)
             logging.info(pformat(metrics))
 
