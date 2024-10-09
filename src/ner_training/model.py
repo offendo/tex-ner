@@ -6,11 +6,11 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from torchcrf import CRF
 from transformers import AutoConfig, AutoModelForTokenClassification
 from transformers.modeling_outputs import TokenClassifierOutput
 from torch.nn.utils.rnn import pad_sequence
 
+from ner_training.crf import CRF
 from ner_training.utils import PAD_TOKEN_ID
 
 
@@ -30,6 +30,7 @@ class BertWithCRF(nn.Module):
         debug: bool = False,
         crf: bool = False,
         crf_loss_reduction: str = "token_mean",
+        add_second_max_to_o: Optional[bool] = None,
     ):
         super().__init__()
         if debug:
@@ -47,6 +48,7 @@ class BertWithCRF(nn.Module):
                 id2label=id2label,
                 hidden_dropout_prob=dropout,
             )
+        self.add_second_max_to_o = add_second_max_to_o
         self.crf_loss_reduction = crf_loss_reduction
         self.crf = CRF(len(label2id), batch_first=True) if crf else None
         self.num_labels = len(label2id)
@@ -102,6 +104,9 @@ class BertWithCRF(nn.Module):
         )
         loss = None
         if labels is not None:
+            if self.add_second_max_to_o:
+                values, indices = torch.topk(outputs.logits[:, :, 1:], dim=-1, k=2)
+                outputs.logits[:, :, 0] += values[:, :, 1]
             is_pad = labels == -100
             crf_out = self.crf.forward(
                 outputs.logits,
@@ -195,25 +200,28 @@ class StackedBERTWithCRF(nn.Module):
         self.tag_pad_token = len(label2id)
 
         # Freeze the base model
-        # for param in self.base.parameters():
-        #     param.requires_grad = False
+        for param in self.base.parameters():
+            param.requires_grad = False
 
         if debug:
-            self.tag_embedding = nn.Embedding(
-                num_embeddings=len(label2id) + 1, embedding_dim=128, padding_idx=self.tag_pad_token
-            )
-            layer = nn.TransformerEncoderLayer(d_model=128, nhead=2, dim_feedforward=256, dropout=dropout)
-            self.stack = nn.TransformerEncoder(layer, num_layers=2)
-            self.head = nn.Linear(128, len(label2id))
+            config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=len(label2id))
+            config.vocab_size = len(label2id) + 1
+            config.hidden_size = 128
+            config.intermediate_size = 256
+            config.num_hidden_layers = 2
+            config.num_attention_heads = 2
+            config.pad_token_id = self.tag_pad_token
+            config.bos_token_id = None
+            config.eos_token_id = None
+            self.tagger = AutoModelForTokenClassification.from_config(config)
         else:
-            self.tag_embedding = nn.Embedding(
-                num_embeddings=len(label2id) + 1, embedding_dim=512, padding_idx=self.tag_pad_token
-            )
-            layer = nn.TransformerEncoderLayer(d_model=512, nhead=8, dim_feedforward=2048, dropout=dropout)
-            self.stack = nn.TransformerEncoder(layer, num_layers=4)
-            self.head = nn.Linear(512, len(label2id))
+            config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=len(label2id))
+            config.vocab_size = len(label2id) + 1
+            config.pad_token_id = self.tag_pad_token
+            config.bos_token_id = None
+            config.eos_token_id = None
+            self.tagger = AutoModelForTokenClassification.from_config(config)
 
-        self.loss_fn = nn.CrossEntropyLoss(ignore_index=PAD_TOKEN_ID)
         self.num_labels = len(label2id)
         self.ctx = 512  # this is only used for BERT context window, so just keep it static
 
@@ -244,14 +252,19 @@ class StackedBERTWithCRF(nn.Module):
             return_predictions=True,
         )
 
-        bert_preds = bert_output.predictions.masked_fill(input_ids == PAD_TOKEN_ID, self.tag_pad_token)
-        x = self.tag_embedding(bert_preds)
-        x = self.stack.forward(x, src_key_padding_mask=(bert_preds == self.tag_pad_token).T)
-        logits = self.head(x)
-
+        bert_preds = bert_output.predictions.masked_fill(~attention_mask.bool(), self.tag_pad_token)
+        tagger_output = self.tagger.forward(
+            input_ids=bert_preds,
+            attention_mask=attention_mask,
+            labels=labels,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
         loss = None
         if labels is not None:
-            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
+            loss = tagger_output.loss
+            logits = tagger_output.logits
 
         return TokenClassifierOutput(
             loss=loss,

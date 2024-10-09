@@ -35,15 +35,15 @@ from transformers import (
     PreTrainedTokenizer,
     Trainer,
     TrainingArguments,
-    seed_everything,
+    set_seed,
 )
 from transformers.modeling_outputs import TokenClassifierOutput
-
-seed_everything(42)
 
 from ner_training.data import load_data, load_mmd_data
 from ner_training.model import BertWithCRF, StackedBERTWithCRF
 from ner_training.utils import *
+
+set_seed(42)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -70,10 +70,14 @@ class CRFTrainer(Trainer):
         labels = inputs.get("labels")
         # forward pass
         outputs = model(**inputs)
-        if model.crf is not None:
+        if hasattr(outputs, "loss"):
             loss = outputs.loss
             return (loss, outputs) if return_outputs else loss
+        # if hasattr(model, "crf") and model.crf is not None:
+        #     loss = outputs.loss
+        #     return (loss, outputs) if return_outputs else loss
 
+        print("hi")
         logits = outputs.get("logits")
         # compute custom loss
         loss_fct = nn.CrossEntropyLoss(weight=self.class_weights)
@@ -117,6 +121,7 @@ def load_model(
     freeze_crf: bool = False,
     stacked: bool = False,
     crf_loss_reduction: str = "token_mean",
+    add_second_max_to_o: Optional[bool] = None,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
@@ -141,6 +146,7 @@ def load_model(
             debug=debug,
             crf=crf,
             crf_loss_reduction=crf_loss_reduction,
+            add_second_max_to_o=add_second_max_to_o,
         )
         logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
 
@@ -253,6 +259,7 @@ def cli():
 @click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
 @click.option("--stacked", is_flag=True)
 @click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
+@click.option("--add_second_max_to_o", is_flag=True)
 def train(
     model: str,
     crf: bool,
@@ -284,6 +291,7 @@ def train(
     checkpoint: Path | None,
     stacked: bool,
     crf_loss_reduction: str,
+    add_second_max_to_o: bool,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
@@ -300,6 +308,7 @@ def train(
         freeze_crf=freeze_crf,
         stacked=stacked,
         crf_loss_reduction=crf_loss_reduction,
+        add_second_max_to_o=add_second_max_to_o,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
@@ -329,10 +338,10 @@ def train(
         logging_strategy="steps",
         logging_steps=logging_steps,
         eval_strategy="steps",
-        eval_steps=50,
+        eval_steps=100,
         save_strategy="steps",
         save_steps=100,
-        save_total_limit=1,
+        save_total_limit=5,
         load_best_model_at_end=True,
         metric_for_best_model="f1",
         use_cpu=DEVICE == "cpu",
@@ -382,6 +391,7 @@ def train(
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--stacked", is_flag=True)
+@click.option("--add_second_max_to_o", is_flag=True)
 def test(
     model: str,
     crf: bool,
@@ -401,6 +411,7 @@ def test(
     examples_as_theorems: bool,
     train_only_tags: list[str],
     stacked: bool,
+    add_second_max_to_o: bool,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
@@ -415,6 +426,7 @@ def test(
         checkpoint=checkpoint,
         dropout=0.0,
         stacked=stacked,
+        add_second_max_to_o=add_second_max_to_o,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
@@ -484,6 +496,7 @@ def test(
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--stacked", is_flag=True)
 @click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
+@click.option("--add_second_max_to_o", is_flag=True)
 def tune(
     model: str,
     crf: bool,
@@ -505,6 +518,7 @@ def tune(
     train_only_tags: list[str] | None,
     stacked: bool,
     crf_loss_reduction: str,
+    add_second_max_to_o: bool,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
 
@@ -558,7 +572,13 @@ def tune(
         compute_metrics=make_compute_metrics(label2id),
         tokenizer=tokenizer,
         model_init=make_model_init(
-            model, label2id=label2id, debug=debug, crf=crf, context_len=context_len, stacked=stacked
+            model,
+            label2id=label2id,
+            debug=debug,
+            crf=crf,
+            context_len=context_len,
+            stacked=stacked,
+            add_second_max_to_o=add_second_max_to_o,
         ),
         data_collator=collator,
     )
@@ -595,6 +615,7 @@ def tune(
 @click.option("--context_len", default=512, type=int)
 @click.option("--batch_size", default=8)
 @click.option("--debug", is_flag=True)
+@click.option("--add_second_max_to_o", is_flag=True)
 def predict(
     model: str,
     crf: bool,
@@ -610,13 +631,21 @@ def predict(
     output_dir: Path,
     batch_size: int,
     debug: bool,
+    add_second_max_to_o: bool,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
 
     id2label = {v: k for k, v in label2id.items()}
     ner_model = load_model(
-        model, crf=crf, context_len=context_len, label2id=label2id, debug=debug, checkpoint=checkpoint, dropout=0.0
+        model,
+        crf=crf,
+        context_len=context_len,
+        label2id=label2id,
+        debug=debug,
+        checkpoint=checkpoint,
+        dropout=0.0,
+        add_second_max_to_o=add_second_max_to_o,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
