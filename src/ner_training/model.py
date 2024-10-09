@@ -176,7 +176,7 @@ class BertWithCRF(nn.Module):
         )
 
 
-class StackedBERTWithCRF(nn.Module):
+class StackedBertWithCRF(nn.Module):
     def __init__(
         self,
         pretrained_model_name: str | Path,
@@ -253,8 +253,8 @@ class StackedBERTWithCRF(nn.Module):
         )
 
         # Shift things up by 1 so we can use 0 for padding
-        bert_preds = (bert_output.predictions + 1).to(input_ids.device).masked_fill(
-            ~attention_mask.bool(), self.tag_pad_token
+        bert_preds = (
+            (bert_output.predictions + 1).to(input_ids.device).masked_fill(~attention_mask.bool(), self.tag_pad_token)
         )
 
         tagger_output = self.tagger.forward(
