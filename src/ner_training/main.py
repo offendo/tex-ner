@@ -236,9 +236,11 @@ def make_compute_metrics(label2id):
 @click.option("--freeze_base_after_steps", type=int, default=None)
 @click.option("--freeze_crf", is_flag=True)
 @click.option("--debug", is_flag=True)
+@click.option("--average_checkpoints", is_flag=True)
 # Data Processing
 @click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
 @click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
+@click.option("--output_name", type=str, required=False, default="")
 @click.option("--remove_nested", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
@@ -275,6 +277,10 @@ def cli(command: str, *args, **kwargs):
 def train(
     model: str,
     crf: bool,
+    stacked: bool,
+    crf_loss_reduction: str,
+    add_second_max_to_o: bool,
+    average_checkpoints: bool,
     definition: bool,
     theorem: bool,
     proof: bool,
@@ -301,9 +307,6 @@ def train(
     examples_as_theorems: bool,
     train_only_tags: list[str] | None,
     checkpoint: Path | None,
-    stacked: bool,
-    crf_loss_reduction: str,
-    add_second_max_to_o: bool,
     remove_nested: bool,
     freeze_base_after_steps: int | None,
     *args,
@@ -387,6 +390,31 @@ def train(
     trainer.train()
     trainer.save_model(str(Path(output_dir) / "checkpoint-best"))
 
+    state_dict = {}
+    from safetensors import safe_open
+    from safetensors.torch import save_file
+
+    # Checkpoint averaging
+    if not average_checkpoints:
+        return
+
+    logging.info("Averaging checkpoints")
+    checkpoints = [
+        Path(output_dir, ckpt) for ckpt in os.listdir(output_dir) if "checkpoint" in ckpt and "best" not in ckpt
+    ]
+    logging.info(f"Found {len(checkpoints)} checkpoints")
+    for checkpoint in checkpoints:
+        with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device="cpu") as file:  # type:ignore
+            for k in file.keys():
+                if k in state_dict:
+                    state_dict[k] += file.get_tensor(k) / len(checkpoints)
+                else:
+                    state_dict[k] = file.get_tensor(k) / len(checkpoints)
+
+    # Save the averaged checkpoints
+    save_file(state_dict, Path(output_dir, "checkpoint-avg"))
+    logging.info(f"Saved at {Path(output_dir, "checkpoint-avg")}")
+
 
 def test(
     model: str,
@@ -401,6 +429,7 @@ def test(
     context_len: int,
     data_dir: Path,
     output_dir: Path,
+    output_name: str,
     batch_size: int,
     debug: bool,
     examples_as_theorems: bool,
@@ -470,7 +499,10 @@ def test(
             "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data[split]["input_ids"]],
         }
         test_df = pd.DataFrame(output)
-        test_df.to_json(Path(output_dir, f"{split}.preds.json"))
+        if output_name is not None:
+            test_df.to_json(Path(output_dir, f"{output_name}.{split}.preds.json"))
+        else:
+            test_df.to_json(Path(output_dir, f"{split}.preds.json"))
 
 
 def tune(

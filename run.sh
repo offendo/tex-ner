@@ -48,11 +48,24 @@ for ((i=1; i<=$NTRIALS; i++)); do
   fi
 
   # Run testing
-  python src/ner_training/main.py test \
-      --model FacebookAI/roberta-base \
-      $CRF \
-      --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-best \
-      $CLASSES \
-      --data_dir /volume/ner/$DATASET \
-      --output_dir /volume/ner/outputs/$ITER_NAME
+  if [ -f /volume/ner/outputs/$ITER_NAME/checkpoint-avg ]; then
+    python src/ner_training/main.py test \
+        --model FacebookAI/roberta-base \
+        $CRF \
+        --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-avg \
+        $CLASSES \
+        --data_dir /volume/ner/$DATASET \
+        --output_dir /volume/ner/outputs/$ITER_NAME
+  fi
+
+  if [ -f /volume/ner/outputs/$ITER_NAME/checkpoint-best ]; then
+    python src/ner_training/main.py test \
+        --model FacebookAI/roberta-base \
+        $CRF \
+        --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-best \
+        $CLASSES \
+        --data_dir /volume/ner/$DATASET \
+        --output_dir /volume/ner/outputs/$ITER_NAME
+  fi
+
 done;
