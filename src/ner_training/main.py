@@ -399,7 +399,6 @@ def test(
     name: bool,
     reference: bool,
     context_len: int,
-    overlap_len: int,
     data_dir: Path,
     output_dir: Path,
     batch_size: int,
