@@ -222,43 +222,56 @@ def make_compute_metrics(label2id):
     return compute_metrics
 
 
-@click.group("cli")
-def cli():
-    pass
-
-
 @click.command()
+# Model Options
+@click.argument("command", type=click.Choice(["train", "test", "tune", "predict"]), required=True)
 @click.option("--model", type=str)
 @click.option("--crf", is_flag=True)
+@click.option("--context_len", default=512, type=int)
+@click.option("--stacked", is_flag=True)
+@click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
+@click.option("--add_second_max_to_o", is_flag=True)
+@click.option("--randomize_last_layer", is_flag=True)
+@click.option("--freeze_base", is_flag=True)
+@click.option("--freeze_base_after_steps", type=int, default=None)
+@click.option("--freeze_crf", is_flag=True)
+@click.option("--debug", is_flag=True)
+# Data Processing
 @click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
 @click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
+@click.option("--remove_nested", is_flag=True)
+@click.option("--examples_as_theorems", is_flag=True)
+@click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
+@click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
+# Labels
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
 @click.option("--proof", is_flag=True)
 @click.option("--example", is_flag=True)
 @click.option("--reference", is_flag=True)
 @click.option("--name", is_flag=True)
-@click.option("--context_len", default=512, type=int)
+# Hyperparameters
 @click.option("--batch_size", default=8)
-@click.option("--learning_rate", default=1e-4)
-@click.option("--weight_decay", default=0.0)
 @click.option("--steps", default=500)
+@click.option("--learning_rate", default=1e-4)
+@click.option("--scheduler", default="linear")
+@click.option("--weight_decay", default=0.0)
 @click.option("--warmup_ratio", default=0.05)
 @click.option("--label_smoothing_factor", default=0.1)
 @click.option("--dropout", default=0.0)
-@click.option("--scheduler", default="linear")
-@click.option("--logging_steps", default=10)
-@click.option("--debug", is_flag=True)
 @click.option("--use_class_weights", is_flag=True)
-@click.option("--randomize_last_layer", is_flag=True)
-@click.option("--freeze_base", is_flag=True)
-@click.option("--freeze_crf", is_flag=True)
-@click.option("--examples_as_theorems", is_flag=True)
-@click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
-@click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
-@click.option("--stacked", is_flag=True)
-@click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
-@click.option("--add_second_max_to_o", is_flag=True)
+@click.option("--logging_steps", default=10)
+def cli(command: str, *args, **kwargs):
+    if command == "train":
+        train(*args, **kwargs)
+    elif command == "test":
+        test(*args, **kwargs)
+    elif command == "tune":
+        tune(*args, **kwargs)
+    elif command == "predict":
+        predict(*args, **kwargs)
+
+
 def train(
     model: str,
     crf: bool,
@@ -291,6 +304,10 @@ def train(
     stacked: bool,
     crf_loss_reduction: str,
     add_second_max_to_o: bool,
+    remove_nested: bool,
+    freeze_base_after_steps: int | None,
+    *args,
+    **kwargs,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
@@ -337,7 +354,7 @@ def train(
         logging_strategy="steps",
         logging_steps=logging_steps,
         eval_strategy="steps",
-        eval_steps=100,
+        eval_steps=50,
         save_strategy="steps",
         save_steps=100,
         save_total_limit=5,
@@ -371,26 +388,6 @@ def train(
     trainer.save_model(str(Path(output_dir) / "checkpoint-best"))
 
 
-@click.command()
-@click.option("--model", type=str)
-@click.option("--crf", is_flag=True)
-@click.option("--checkpoint", default=None, type=click.Path(exists=True))
-@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, writable=True, resolve_path=True))
-@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
-@click.option("--definition", is_flag=True)
-@click.option("--theorem", is_flag=True)
-@click.option("--proof", is_flag=True)
-@click.option("--example", is_flag=True)
-@click.option("--reference", is_flag=True)
-@click.option("--name", is_flag=True)
-@click.option("--context_len", default=512, type=int)
-@click.option("--overlap_len", default=512, type=int)
-@click.option("--batch_size", default=8)
-@click.option("--debug", is_flag=True)
-@click.option("--examples_as_theorems", is_flag=True)
-@click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
-@click.option("--stacked", is_flag=True)
-@click.option("--add_second_max_to_o", is_flag=True)
 def test(
     model: str,
     crf: bool,
@@ -411,6 +408,9 @@ def test(
     train_only_tags: list[str],
     stacked: bool,
     add_second_max_to_o: bool,
+    remove_nested: bool,
+    *args,
+    **kwargs,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
@@ -474,28 +474,6 @@ def test(
         test_df.to_json(Path(output_dir, f"{split}.preds.json"))
 
 
-@click.command()
-@click.option("--model", type=str)
-@click.option("--crf", is_flag=True)
-@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
-@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
-@click.option("--definition", is_flag=True)
-@click.option("--theorem", is_flag=True)
-@click.option("--proof", is_flag=True)
-@click.option("--example", is_flag=True)
-@click.option("--reference", is_flag=True)
-@click.option("--name", is_flag=True)
-@click.option("--use_class_weights", is_flag=True)
-@click.option("--context_len", default=512, type=int)
-@click.option("--steps", default=500)
-@click.option("--logging_steps", default=10)
-@click.option("--trials", default=50)
-@click.option("--debug", is_flag=True)
-@click.option("--examples_as_theorems", is_flag=True)
-@click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
-@click.option("--stacked", is_flag=True)
-@click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
-@click.option("--add_second_max_to_o", is_flag=True)
 def tune(
     model: str,
     crf: bool,
@@ -518,6 +496,9 @@ def tune(
     stacked: bool,
     crf_loss_reduction: str,
     add_second_max_to_o: bool,
+    remove_nested: bool,
+    *args,
+    **kwargs,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
 
@@ -599,22 +580,6 @@ def tune(
     return best_trial
 
 
-@click.command()
-@click.option("--model", type=str)
-@click.option("--crf", is_flag=True)
-@click.option("--checkpoint", default=None, type=click.Path(exists=True))
-@click.option("--data_dir", type=click.Path(exists=True, file_okay=False, writable=True, resolve_path=True))
-@click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
-@click.option("--definition", is_flag=True)
-@click.option("--theorem", is_flag=True)
-@click.option("--proof", is_flag=True)
-@click.option("--example", is_flag=True)
-@click.option("--reference", is_flag=True)
-@click.option("--name", is_flag=True)
-@click.option("--context_len", default=512, type=int)
-@click.option("--batch_size", default=8)
-@click.option("--debug", is_flag=True)
-@click.option("--add_second_max_to_o", is_flag=True)
 def predict(
     model: str,
     crf: bool,
@@ -631,6 +596,9 @@ def predict(
     batch_size: int,
     debug: bool,
     add_second_max_to_o: bool,
+    remove_nested: bool,
+    *args,
+    **kwargs,
 ):
     label2id = create_multiclass_labels(definition, theorem, proof, example, name, reference)
     logging.info(f"Label map: {label2id}")
@@ -705,8 +673,4 @@ def predict(
 
 
 if __name__ == "__main__":
-    cli.add_command(train)
-    cli.add_command(test)
-    cli.add_command(predict)
-    cli.add_command(tune)
     cli()
