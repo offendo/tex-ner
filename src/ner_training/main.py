@@ -412,8 +412,9 @@ def train(
                     state_dict[k] = file.get_tensor(k) / len(checkpoints)
 
     # Save the averaged checkpoints
-    save_file(state_dict, Path(output_dir, "checkpoint-avg"))
-    logging.info(f"Saved at {Path(output_dir, "checkpoint-avg")}")
+    avg_path = Path(output_dir, "checkpoint-avg")
+    save_file(state_dict, avg_path)
+    logging.info(f"Saved at {avg_path}")
 
 
 def test(
