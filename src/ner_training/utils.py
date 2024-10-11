@@ -26,6 +26,11 @@ class FreezeBaseAfterStepsCallback(TrainerCallback):
             logging.info(f"Reached step {self.freeze_base_after_step}, freezing bert weights.")
             for param in kwargs["model"].bert.parameters():
                 param.requires_grad = False
+            logging.info(f"Now resetting the learning rate to {args.learning_rate}")
+
+            # Reset the learning rate
+            scheduler = kwargs["scheduler"]
+            scheduler._initial_step()
 
 
 def create_multiclass_labels(definition: bool, theorem: bool, proof: bool, example: bool, name: bool, reference: bool):
