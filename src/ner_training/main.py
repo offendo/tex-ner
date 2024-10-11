@@ -385,6 +385,7 @@ def train(
         eval_dataset=data["val"],
         compute_metrics=make_compute_metrics(label2id),
         class_weights=class_weights,
+        callbacks=[FreezeBaseAfterStepsCallback(freeze_base_after_steps)],
     )
 
     trainer.train()
