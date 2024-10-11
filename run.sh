@@ -55,7 +55,8 @@ for ((i=1; i<=$NTRIALS; i++)); do
         --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-avg \
         $CLASSES \
         --data_dir /volume/ner/$DATASET \
-        --output_dir /volume/ner/outputs/$ITER_NAME
+        --output_dir /volume/ner/outputs/$ITER_NAME \
+        --output_name "average"
   fi
 
   if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-best ]; then
@@ -65,7 +66,8 @@ for ((i=1; i<=$NTRIALS; i++)); do
         --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-best \
         $CLASSES \
         --data_dir /volume/ner/$DATASET \
-        --output_dir /volume/ner/outputs/$ITER_NAME
+        --output_dir /volume/ner/outputs/$ITER_NAME \
+        --output_name "best"
   fi
 
 done;
