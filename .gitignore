@@ -16,3 +16,5 @@ wheels/
 /results/
 /configs/
 *.yaml
+/Mallet-202108/
+*.safetensors
