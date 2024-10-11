@@ -48,7 +48,7 @@ for ((i=1; i<=$NTRIALS; i++)); do
   fi
 
   # Run testing
-  if [ -f /volume/ner/outputs/$ITER_NAME/checkpoint-avg ]; then
+  if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-avg ]; then
     python src/ner_training/main.py test \
         --model FacebookAI/roberta-base \
         $CRF \
@@ -58,7 +58,7 @@ for ((i=1; i<=$NTRIALS; i++)); do
         --output_dir /volume/ner/outputs/$ITER_NAME
   fi
 
-  if [ -f /volume/ner/outputs/$ITER_NAME/checkpoint-best ]; then
+  if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-best ]; then
     python src/ner_training/main.py test \
         --model FacebookAI/roberta-base \
         $CRF \
