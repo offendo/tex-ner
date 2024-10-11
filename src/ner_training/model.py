@@ -31,6 +31,7 @@ class BertWithCRF(nn.Module):
         crf: bool = False,
         crf_loss_reduction: str = "token_mean",
         add_second_max_to_o: Optional[bool] = None,
+        use_crf_cost_function: bool = False,
     ):
         super().__init__()
         if debug:
@@ -50,7 +51,7 @@ class BertWithCRF(nn.Module):
             )
         self.add_second_max_to_o = add_second_max_to_o
         self.crf_loss_reduction = crf_loss_reduction
-        self.crf = CRF(len(label2id), batch_first=True) if crf else None
+        self.crf = CRF(len(label2id), batch_first=True, use_cost_function=use_crf_cost_function) if crf else None
         self.num_labels = len(label2id)
         self.ctx = 512  # this is only used for BERT context window, so just keep it static
 

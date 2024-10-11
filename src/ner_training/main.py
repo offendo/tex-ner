@@ -118,6 +118,7 @@ def load_model(
     stacked: bool = False,
     crf_loss_reduction: str = "token_mean",
     add_second_max_to_o: Optional[bool] = None,
+    use_crf_cost_function: bool = False,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
@@ -143,6 +144,7 @@ def load_model(
             crf=crf,
             crf_loss_reduction=crf_loss_reduction,
             add_second_max_to_o=add_second_max_to_o,
+            use_crf_cost_function=use_crf_cost_function,
         )
         logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
 
@@ -237,6 +239,7 @@ def make_compute_metrics(label2id):
 @click.option("--freeze_crf", is_flag=True)
 @click.option("--debug", is_flag=True)
 @click.option("--average_checkpoints", is_flag=True)
+@click.option("--use_crf_cost_function", is_flag=True)
 # Data Processing
 @click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
 @click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
@@ -281,6 +284,7 @@ def train(
     crf_loss_reduction: str,
     add_second_max_to_o: bool,
     average_checkpoints: bool,
+    use_crf_cost_function: bool,
     definition: bool,
     theorem: bool,
     proof: bool,
@@ -328,6 +332,7 @@ def train(
         stacked=stacked,
         crf_loss_reduction=crf_loss_reduction,
         add_second_max_to_o=add_second_max_to_o,
+        use_crf_cost_function=use_crf_cost_function,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 

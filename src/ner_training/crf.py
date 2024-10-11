@@ -3,6 +3,7 @@ from typing import List, Optional
 
 import torch
 import torch.nn as nn
+from icecream import ic
 
 
 class CRF(nn.Module):
@@ -34,7 +35,7 @@ class CRF(nn.Module):
     .. _Viterbi algorithm: https://en.wikipedia.org/wiki/Viterbi_algorithm
     """
 
-    def __init__(self, num_tags: int, batch_first: bool = False) -> None:
+    def __init__(self, num_tags: int, batch_first: bool = False, use_cost_function: bool = False) -> None:
         if num_tags <= 0:
             raise ValueError(f"invalid number of tags: {num_tags}")
         super().__init__()
@@ -43,6 +44,7 @@ class CRF(nn.Module):
         self.start_transitions = nn.Parameter(torch.empty(num_tags))
         self.end_transitions = nn.Parameter(torch.empty(num_tags))
         self.transitions = nn.Parameter(torch.empty(num_tags, num_tags))
+        self.use_cost_function = use_cost_function
 
         self.reset_parameters()
 
@@ -100,7 +102,7 @@ class CRF(nn.Module):
         # shape: (batch_size,)
         numerator = self._compute_score(emissions, tags, mask)
         # shape: (batch_size,)
-        denominator = self._compute_normalizer(emissions, mask)
+        denominator = self._compute_normalizer(emissions, mask, tags)
         # shape: (batch_size,)
         llh = numerator - denominator
 
@@ -199,7 +201,9 @@ class CRF(nn.Module):
 
         return score
 
-    def _compute_normalizer(self, emissions: torch.Tensor, mask: torch.ByteTensor) -> torch.Tensor:
+    def _compute_normalizer(
+        self, emissions: torch.Tensor, mask: torch.ByteTensor, tags: torch.Tensor | None = None
+    ) -> torch.Tensor:
         # emissions: (seq_length, batch_size, num_tags)
         # mask: (seq_length, batch_size)
         assert emissions.dim() == 3 and mask.dim() == 2
@@ -230,6 +234,20 @@ class CRF(nn.Module):
             # and emitting
             # shape: (batch_size, num_tags, num_tags)
             next_score = broadcast_score + self.transitions + broadcast_emissions
+
+            # NILAY: Add a cost function here
+            if tags is not None and self.use_cost_function:
+                weights = torch.zeros(self.num_tags, dtype=torch.float, device=self.transitions.device)
+                weights[tags[i - 1]] = 1
+                cost_fn = nn.CrossEntropyLoss(weight=weights, reduction="none")
+                # emissions[i]: B x T
+                # tags[i]: [B]
+                # cost: [B]
+                B, T, _ = next_score.shape
+                reshaped = tags[i].unsqueeze(1).expand(B, T)
+                cost = cost_fn(next_score.view(B * T, T), reshaped.reshape(-1)).view(B, T, 1)
+                ic((cost * mask[i]).sum())
+                next_score += cost
 
             # Sum over all possible current tags, but we're in score space, so a sum
             # becomes a log-sum-exp: for each sample, entry i stores the sum of scores of
