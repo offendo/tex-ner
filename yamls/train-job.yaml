@@ -23,8 +23,10 @@ spec:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
           env:
+            - name: NTRIALS
+              value: "1"
             - name: RUN_NAME
-              value: base-crf-post-incomplete-tune
+              value: base-freeze-base-after-1500
             - name: CRF
               value: "--crf"
             - name: CLASSES
@@ -32,21 +34,21 @@ spec:
             - name: DO_TRAIN
               value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 1641"
+              value: "--steps 3355 --crf_loss_reduction token_mean --average_checkpoints --freeze_base_after_steps 1500"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE
-              value: "0.00008178476574339552"
+              value: "0.00014445251022763073"
             - name: BATCH_SIZE
-              value: "16"
+              value: "4"
             - name: LABEL_SMOOTHING
-              value: "0.07132447872229951"
+              value: "0.0456069984217036"
             - name: WARMUP_RATIO
-              value: "0.056124342584770115"
+              value: "0.052477466025838915"
             - name: DROPOUT
               value: "0.0"
             - name: WEIGHT_DECAY
-              value: "0.00001408577102296383"
+              value: "0.00001583371833901207"
             - name: SCHEDULER
               value: "inverse_sqrt"
           command: ["bash", "run.sh"]

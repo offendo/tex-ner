@@ -48,7 +48,7 @@ EOF
 python /dev/fd/3
 
 
-rye run python score.py multiclass -n $NAME
+rye run python score.py multiclass -n $NAME -t $TYPE
 
 column -t -s $'\t' outputs.csv > results/$NAME/$TYPE.outputs.txt
 rm outputs.csv
