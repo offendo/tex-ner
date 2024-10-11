@@ -19,11 +19,11 @@ class FreezeBaseAfterStepsCallback(TrainerCallback):
 
     def __init__(self, freeze_after_step) -> None:
         super().__init__()
-        self.freeze_after_step = freeze_after_step
+        self.freeze_base_after_step = freeze_after_step
 
     def on_step_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
-        if state.global_step == self.freeze_after_step:
-            logging.info(f"Reached step {self.freeze_after_step}, freezing bert weights.")
+        if state.global_step == self.freeze_base_after_step:
+            logging.info(f"Reached step {self.freeze_base_after_step}, freezing bert weights.")
             for param in kwargs["model"].bert.parameters():
                 param.requires_grad = False
 
