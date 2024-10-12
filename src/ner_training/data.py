@@ -55,7 +55,7 @@ def load_mmd(
     for idx in range(math.ceil(n_tokens / context_len)):
         input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
         mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
-        all_examples.append({"input_ids": input_ids, "attention_mask": mask, "file": str(path) "tag": ''})
+        all_examples.append({"input_ids": input_ids, "attention_mask": mask, "file": str(path), "tag": ""})
     return all_examples
 
 
