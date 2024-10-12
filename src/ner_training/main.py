@@ -677,7 +677,7 @@ def predict(
                 "tokens": [
                     [tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"][start:total]
                 ],
-                "tag": data["tag"],
+                "tag": data["tag"][start:total],
             }
             test_df = pd.DataFrame(output)
             # flatten each file's output into one row
