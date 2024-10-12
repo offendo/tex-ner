@@ -17,6 +17,7 @@ if [[ -z $KFOLDS ]]; then
   KFOLDS=1
 fi
 
+pids=()
 for ((i=1; i<=$KFOLDS; i++)); do
 
   ITER_NAME=$RUN_NAME-$i
@@ -55,4 +56,11 @@ for ((i=1; i<=$KFOLDS; i++)); do
       --data_dir /volume/ner/$DATASET \
       --output_dir /volume/ner/outputs/$ITER_NAME \
       --output_name "best")&
+  pids[${i}]=$!
 done;
+
+# wait for all pids
+for pid in ${pids[*]}; do
+    wait $pid
+done
+
