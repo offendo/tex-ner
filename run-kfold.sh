@@ -25,7 +25,7 @@ for ((i=1; i<=$KFOLDS; i++)); do
 
   # Run training
   export WANDB_RUN_NAME="$RUN_NAME"
-  if [[ $DO_TRAIN = 'true' ]]; then
+  (if [[ $DO_TRAIN = 'true' ]]; then
     CUDA_VISIBLE_DEVICES=$i python src/ner_training/main.py train \
       --model FacebookAI/roberta-base \
       $CRF \
@@ -54,6 +54,5 @@ for ((i=1; i<=$KFOLDS; i++)); do
       --fold $i \
       --data_dir /volume/ner/$DATASET \
       --output_dir /volume/ner/outputs/$ITER_NAME \
-      --output_name "best"
-
+      --output_name "best")&
 done;
