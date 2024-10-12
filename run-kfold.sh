@@ -31,7 +31,7 @@ for ((i=1; i<=$KFOLDS; i++)); do
       $CRF \
       $CLASSES \
       $TRAIN_FLAGS \
-      --kfold $KFOLDS \
+      --k_fold $KFOLDS \
       --fold $i \
       --learning_rate $LEARNING_RATE \
       --batch_size $BATCH_SIZE \
