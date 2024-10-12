@@ -96,11 +96,12 @@ def load_prediction_data(
     context_len: int,
 ):
     examples = []
-    for preds in os.listdir(data_dir):
+    for preds in tqdm(os.listdir(data_dir)):
         file_exs = load_predictions_file(Path(data_dir, preds), tokenizer=tokenizer, context_len=context_len)
         examples.extend(file_exs)
 
-    return Dataset.from_list(examples)
+    dataset = Dataset.from_list(examples)
+    return dataset.filter(lambda x: len(x["input_ids"]) > 25)
 
 
 def load_file_name_or_ref(
