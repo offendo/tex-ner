@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import random
 from pathlib import Path
 from pprint import pformat
 from typing import Callable, Iterable, Optional
@@ -235,6 +236,7 @@ def load_data(
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
     train_only_tags: list[str] | None = None,
+    k_fold: int | None = None,
 ):
     logging.info(f"{train_only_tags=}")
     train_dir = Path(data_dir, "train")
@@ -287,6 +289,9 @@ def load_data(
         test.extend(examples)
     logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
 
+    if k_fold is not None:
+        pass
+
     return DatasetDict(
         {
             "train": Dataset.from_list(train),
@@ -294,3 +299,88 @@ def load_data(
             "test": Dataset.from_list(test),
         }
     )
+
+
+def load_kfold_data(
+    data_dir: str | Path,
+    tokenizer: PreTrainedTokenizer,
+    label2id: dict[str, int],
+    context_len: int,
+    k_fold: int,
+    strip_bio_prefix: bool = True,
+    examples_as_theorems: bool = False,
+    train_only_tags: list[str] | None = None,
+):
+    train_dir = Path(data_dir, "train")
+    test_dir = Path(data_dir, "test")
+    val_dir = Path(data_dir, "val")
+
+    assert train_dir.exists(), f"Expected {train_dir} to exist."
+    assert test_dir.exists(), f"Expected {test_dir} to exist."
+    assert val_dir.exists(), f"Expected {val_dir} to exist."
+
+    file_ids = {js.split(".mmd")[0] + ".mmd": [] for js in os.listdir(train_dir) + os.listdir(val_dir)}
+
+    for path in os.listdir(train_dir):
+        id = path.split(".mmd")[0] + ".mmd"
+        file_ids[id].append(train_dir / path)
+
+    for path in os.listdir(val_dir):
+        id = path.split(".mmd")[0] + ".mmd"
+        file_ids[id].append(val_dir / path)
+
+    # For each fold, select a new set of heldout files
+    folds = {}
+    for fold in range(k_fold):
+        heldout_files = [file for i, paths in enumerate(file_ids.values()) for file in paths if i % k_fold == fold]
+        train_files = [file for i, paths in enumerate(file_ids.values()) for file in paths if i % k_fold != fold]
+
+        train = []
+        for js in train_files:
+            examples = load_file(
+                js,
+                label2id=label2id,
+                tokenizer=tokenizer,
+                context_len=context_len,
+                strip_bio_prefix=strip_bio_prefix,
+                examples_as_theorems=examples_as_theorems,
+                train_only_tags=train_only_tags,
+            )
+            train.extend(examples)
+        logging.info(f"Loaded train data ({len(train)} examples from {len(train_files)} files).")
+
+        val = []
+        for js in heldout_files:
+            examples = load_file(
+                js,
+                label2id=label2id,
+                tokenizer=tokenizer,
+                context_len=context_len,
+                strip_bio_prefix=strip_bio_prefix,
+                examples_as_theorems=examples_as_theorems,
+                train_only_tags=train_only_tags,
+            )
+            val.extend(examples)
+            logging.info(f"Loaded val data ({len(val)} examples from {len(heldout_files)} files).")
+
+        test = []
+        for js in os.listdir(test_dir):
+            examples = load_file(
+                test_dir / js,
+                label2id=label2id,
+                tokenizer=tokenizer,
+                context_len=context_len,
+                strip_bio_prefix=strip_bio_prefix,
+                examples_as_theorems=examples_as_theorems,
+                train_only_tags=train_only_tags,
+            )
+            test.extend(examples)
+            logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
+        folds[f"fold{fold}"] = DatasetDict(
+            {
+                "train": Dataset.from_list(train),
+                "val": Dataset.from_list(val),
+                "test": Dataset.from_list(test),
+            }
+        )
+    return DatasetDict(folds)

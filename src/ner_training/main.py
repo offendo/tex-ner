@@ -39,7 +39,7 @@ from transformers import (
 )
 from transformers.modeling_outputs import TokenClassifierOutput
 
-from ner_training.data import load_data, load_mmd_data, load_prediction_data
+from ner_training.data import load_data, load_kfold_data, load_mmd_data, load_prediction_data
 from ner_training.model import BertWithCRF, StackedBertWithCRF
 from ner_training.utils import *
 
@@ -248,6 +248,8 @@ def make_compute_metrics(label2id):
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
+@click.option("--k_fold", type=int, default=1)
+@click.option("--fold", type=int, default=0)
 # Labels
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
@@ -277,6 +279,18 @@ def cli(command: str, *args, **kwargs):
         predict(*args, **kwargs)
 
 
+# To do kfold training, we need to:
+# data <-- load kfold data
+# preds <-- empty dictionary
+# For each fold in range(fold):
+#   base_model <-- load base model
+#   base_model <-- train model on data[fold]
+#   preds += <-- generate predictions on val data
+# stacked_model <-- load stacked model
+# stacked_model <-- train model on preds
+# final_preds <-- generate predictions on val + test data
+
+
 def train(
     model: str,
     crf: bool,
@@ -294,6 +308,8 @@ def train(
     context_len: int,
     data_dir: Path,
     output_dir: Path,
+    k_fold: int,
+    fold: int,
     batch_size: int,
     learning_rate: float,
     weight_decay: float,
@@ -337,14 +353,26 @@ def train(
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     # Data loading
-    data = load_data(
-        data_dir,
-        tokenizer,
-        context_len=context_len,
-        label2id=label2id,
-        examples_as_theorems=examples_as_theorems,
-        train_only_tags=train_only_tags,
-    )
+    if k_fold > 1 and fold > 0:
+        fold_data = load_kfold_data(
+            data_dir,
+            tokenizer,
+            k_fold=k_fold,
+            context_len=context_len,
+            label2id=label2id,
+            examples_as_theorems=examples_as_theorems,
+            train_only_tags=train_only_tags,
+        )
+        data = fold_data[f"fold{fold}"]
+    else:
+        data = load_data(
+            data_dir,
+            tokenizer,
+            context_len=context_len,
+            label2id=label2id,
+            examples_as_theorems=examples_as_theorems,
+            train_only_tags=train_only_tags,
+        )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
     # Build the trainer
@@ -437,7 +465,9 @@ def test(
     context_len: int,
     data_dir: Path,
     output_dir: Path,
-    output_name: str,
+    output_name: str | None,
+    k_fold: int,
+    fold: int,
     batch_size: int,
     debug: bool,
     examples_as_theorems: bool,
@@ -466,14 +496,26 @@ def test(
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     # Data loading
-    data = load_data(
-        data_dir,
-        label2id=label2id,
-        tokenizer=tokenizer,
-        context_len=context_len,
-        examples_as_theorems=examples_as_theorems,
-        train_only_tags=train_only_tags,
-    )
+    if k_fold > 1 and fold > 0:
+        fold_data = load_kfold_data(
+            data_dir,
+            tokenizer,
+            k_fold=k_fold,
+            context_len=context_len,
+            label2id=label2id,
+            examples_as_theorems=examples_as_theorems,
+            train_only_tags=train_only_tags,
+        )
+        data = fold_data[f"fold{fold}"]
+    else:
+        data = load_data(
+            data_dir,
+            tokenizer,
+            context_len=context_len,
+            label2id=label2id,
+            examples_as_theorems=examples_as_theorems,
+            train_only_tags=train_only_tags,
+        )
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
     args = TrainingArguments(
