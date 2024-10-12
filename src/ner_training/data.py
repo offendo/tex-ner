@@ -97,7 +97,7 @@ def load_prediction_data(
 ):
     examples = []
     for preds in os.listdir(data_dir):
-        file_exs = load_mmd(Path(data_dir, preds), tokenizer=tokenizer, context_len=context_len)
+        file_exs = load_predictions_file(Path(data_dir, preds), tokenizer=tokenizer, context_len=context_len)
         examples.extend(file_exs)
 
     return Dataset.from_list(examples)
