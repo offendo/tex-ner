@@ -24,9 +24,9 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: OUTPUT_NAME
-              value: base-fixed-crf-posttune-name-ref
+              value: name-and-ref-fixed-crf-finetune
             - name: RUN_NAME
-              value: base-fixed-crf-posttune
+              value: name-and-ref-fixed-crf-finetune
             - name: CLASSES
               value: "--name --reference"
           command: ["bash", "predict.sh"]

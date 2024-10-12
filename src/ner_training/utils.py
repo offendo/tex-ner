@@ -196,6 +196,8 @@ def convert_tags_to_annotations(tokens: list[str], tags: list[str], tokenizer: P
         "theorem": [],
         "proof": [],
         "example": [],
+        "name": [],
+        "reference": [],
     }
     for idx, (tok, tag) in enumerate(zip(tokens, postprocess(tags))):
         labels = [l for l in tag.split("-") if l != "O"]
@@ -207,7 +209,15 @@ def convert_tags_to_annotations(tokens: list[str], tags: list[str], tokenizer: P
                 mmd = tokenizer.convert_tokens_to_string(toks)
                 start = len(tokenizer.convert_tokens_to_string(tokens[: idx - len(toks)]))
                 end = start + len(mmd)
-                annotations.append({"tex": mmd, "tag": cur, "end_token_idx": idx, "start": start, "end": end - 1})
+                annotations.append(
+                    {
+                        "tex": mmd,
+                        "tag": cur,
+                        "end_token_idx": idx,
+                        "start": start - len(tokenizer.bos_token),  # for some reason, this is offset by <s>
+                        "end": end - 1,
+                    }
+                )
                 current_annos[cur] = []
                 to_remove.add(cur)
         current_tags.difference_update(to_remove)

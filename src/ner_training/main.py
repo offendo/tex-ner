@@ -680,10 +680,10 @@ def predict(
                 "tag": data["tag"][start:total],
             }
             test_df = pd.DataFrame(output)
+
             # flatten each file's output into one row
             test_df = test_df.groupby("file").agg(lambda xs: [y for x in xs for y in x]).reset_index()
             test_df.to_json(Path(output_dir, f"mmd.preds-{idx}.json"))
-            Path(output_dir, f"mmd.preds-{idx-1}.json").unlink(missing_ok=True)
 
         batch_out = ner_model.forward(
             input_ids=batch["input_ids"].to(ner_model.bert.device),
