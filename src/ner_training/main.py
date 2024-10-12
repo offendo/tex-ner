@@ -39,7 +39,7 @@ from transformers import (
 )
 from transformers.modeling_outputs import TokenClassifierOutput
 
-from ner_training.data import load_data, load_mmd_data
+from ner_training.data import load_data, load_mmd_data, load_prediction_data
 from ner_training.model import BertWithCRF, StackedBertWithCRF
 from ner_training.utils import *
 
@@ -656,16 +656,16 @@ def predict(
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     # Data loading
-    data = load_mmd_data(
-        data_dir,
-        tokenizer=tokenizer,
-        context_len=context_len,
-    )
+    if name or reference:
+        data = load_prediction_data(data_dir, tokenizer=tokenizer, context_len=context_len)
+    else:
+        data = load_mmd_data(data_dir, tokenizer=tokenizer, context_len=context_len)
     collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
 
     # Run the predictions
     ner_model.eval()
-    loader = DataLoader(data.remove_columns(["file"]), batch_size=batch_size, shuffle=False, collate_fn=collator)
+    to_remove = ["file"] + (["tag"] if "tag" in data.column_names else [])
+    loader = DataLoader(data.remove_columns(to_remove), batch_size=batch_size, shuffle=False, collate_fn=collator)
     all_predictions = []
     for idx, batch in enumerate(tqdm(loader), start=1):
         if idx % 100 == 0:
@@ -677,6 +677,7 @@ def predict(
                 "tokens": [
                     [tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"][start:total]
                 ],
+                "tag": data["tag"],
             }
             test_df = pd.DataFrame(output)
             # flatten each file's output into one row
@@ -696,6 +697,7 @@ def predict(
         "file": data["file"],
         "preds": [[id2label[p] for p in pp if p != PAD_TOKEN_ID] for pp in all_predictions],
         "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"]],
+        "tag": data["tag"],
     }
     test_df = pd.DataFrame(output)
 

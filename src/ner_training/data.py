@@ -55,7 +55,7 @@ def load_mmd(
     for idx in range(math.ceil(n_tokens / context_len)):
         input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
         mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
-        all_examples.append({"input_ids": input_ids, "attention_mask": mask, "file": str(path)})
+        all_examples.append({"input_ids": input_ids, "attention_mask": mask, "file": str(path) "tag": ''})
     return all_examples
 
 
@@ -67,6 +67,37 @@ def load_mmd_data(
     examples = []
     for mmd in os.listdir(data_dir):
         file_exs = load_mmd(Path(data_dir, mmd), tokenizer=tokenizer, context_len=context_len)
+        examples.extend(file_exs)
+
+    return Dataset.from_list(examples)
+
+
+def load_predictions_file(
+    path: str | Path,
+    tokenizer: PreTrainedTokenizer,
+    context_len: int,
+):
+    df = pd.read_json(path)
+    examples = []
+    for idx, row in df.iterrows():
+        tokens = tokenizer(row.tex)
+        n_tokens = len(tokens.input_ids)
+        tag = row.tag
+        for idx in range(math.ceil(n_tokens / context_len)):
+            input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
+            mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
+            examples.append({"input_ids": input_ids, "attention_mask": mask, "file": str(path), "tag": tag})
+    return examples
+
+
+def load_prediction_data(
+    data_dir: str | Path,
+    tokenizer: PreTrainedTokenizer,
+    context_len: int,
+):
+    examples = []
+    for preds in os.listdir(data_dir):
+        file_exs = load_mmd(Path(data_dir, preds), tokenizer=tokenizer, context_len=context_len)
         examples.extend(file_exs)
 
     return Dataset.from_list(examples)

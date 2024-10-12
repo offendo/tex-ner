@@ -237,17 +237,10 @@ class CRF(nn.Module):
 
             # NILAY: Add a cost function here
             if tags is not None and self.use_cost_function:
-                weights = torch.zeros(self.num_tags, dtype=torch.float, device=self.transitions.device)
-                weights[tags[i - 1]] = 1
-                cost_fn = nn.CrossEntropyLoss(weight=weights, reduction="none")
-                # emissions[i]: B x T
-                # tags[i]: [B]
-                # cost: [B]
-                B, T, _ = next_score.shape
-                reshaped = tags[i].unsqueeze(1).expand(B, T)
-                cost = cost_fn(next_score.view(B * T, T), reshaped.reshape(-1)).view(B, T, 1)
-                ic((cost * mask[i]).sum())
-                next_score += cost
+                alpha = 5
+                preds = torch.argmax(torch.logsumexp(next_score, dim=1), dim=-1)
+                cost = alpha * (tags[i] != preds)
+                next_score += cost.view(-1, 1, 1)
 
             # Sum over all possible current tags, but we're in score space, so a sum
             # becomes a log-sum-exp: for each sample, entry i stores the sum of scores of
