@@ -7,9 +7,8 @@ wandb login $(cat /etc/api-tokens/wandb-token)
 # Update the code
 pip install -U .
 
-echo "Beginning run $RUN_NAME"
-mkdir -p "/volume/ner/outputs/$RUN_NAME"
-mkdir -p "/volume/ner/outputs/mmds-$RUN_NAME/"
+echo "Beginning run $RUN_NAME, saving to $OUTPUT_NAME"
+mkdir -p "/volume/ner/outputs/mmds-$OUTPUT_NAME/"
 
 # Run testing
 python src/ner_training/main.py predict \
@@ -18,5 +17,5 @@ python src/ner_training/main.py predict \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     $CLASSES \
     --data_dir /volume/pdfocr/mmds/ \
-    --output_dir /volume/ner/outputs/mmds-$RUN_NAME/
+    --output_dir /volume/ner/outputs/mmds-$OUTPUT_NAME/
 

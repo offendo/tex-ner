@@ -23,10 +23,12 @@ spec:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
           env:
+            - name: OUTPUT_NAME
+              value: base-fixed-crf-posttune-name-ref
             - name: RUN_NAME
               value: base-fixed-crf-posttune
             - name: CLASSES
-              value: "--definition --theorem --proof --example"
+              value: "--name --reference"
           command: ["bash", "predict.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
