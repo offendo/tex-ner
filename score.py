@@ -1,5 +1,6 @@
 from pprint import pprint, pformat
 from typing import Optional
+import os
 import pandas as pd
 import seaborn as sns
 from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
@@ -41,7 +42,7 @@ def heatmap(
 ):
     if name is not None:
         predictions = [f"results/{name}/{type}.test.preds.json", f"results/{name}/{type}.val.preds.json"]
-    df = pd.concat([pd.read_json(pred) for pred in predictions])
+    df = pd.concat([pd.read_json(pred) for pred in predictions if os.path.exists(pred)])
     labels = [l for l in df.labels.explode().unique()]
     fig = plt.figure(figsize=(10,10))
     mat = confusion_matrix(df.labels.explode(), df.preds.explode(), labels=labels, normalize=norm)
@@ -64,7 +65,7 @@ def multilabel(
 ):
     if name is not None:
         predictions = [f"results/{name}/{type}.test.preds.json", f"results/{name}/{type}.val.preds.json"]
-    df = pd.concat([pd.read_json(pred) for pred in predictions])
+    df = pd.concat([pd.read_json(pred) for pred in predictions if os.path.exists(pred)])
     classes = [l for l in df.labels.explode().str.split('-').explode().unique() if l != 'O']
     mlb = MultiLabelBinarizer(classes=classes)
     labels = mlb.fit_transform(df.labels.explode().str.split('-'))
@@ -91,7 +92,7 @@ def multiclass(
 ):
     if name is not None:
         predictions = [f"results/{name}/{type}.test.preds.json", f"results/{name}/{type}.val.preds.json"]
-    df = pd.concat([pd.read_json(pred) for pred in predictions])
+    df = pd.concat([pd.read_json(pred) for pred in predictions if os.path.exists(pred)])
     labels = df.labels.explode()
     preds = df.preds.explode()
     classes = [l for l in labels.unique() if l != 'O']

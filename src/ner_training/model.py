@@ -6,6 +6,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+from more_itertools import windowed
 from transformers import AutoConfig, AutoModelForTokenClassification
 from transformers.modeling_outputs import TokenClassifierOutput
 from torch.nn.utils.rnn import pad_sequence
@@ -26,6 +27,7 @@ class BertWithCRF(nn.Module):
         label2id: dict[str, int],
         id2label: dict[int, str],
         context_len: int = 512,
+        overlap_len: int = 512,
         dropout: float = 0.0,
         debug: bool = False,
         crf: bool = False,
@@ -54,6 +56,7 @@ class BertWithCRF(nn.Module):
         self.crf = CRF(len(label2id), batch_first=True, use_cost_function=use_crf_cost_function) if crf else None
         self.num_labels = len(label2id)
         self.ctx = 512  # this is only used for BERT context window, so just keep it static
+        self.overlap = overlap_len
 
     def no_crf_forward(
         self,
@@ -98,11 +101,18 @@ class BertWithCRF(nn.Module):
         assert self.crf is not None
         # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
         B, N = input_ids.shape
-        outputs = self.bert(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            labels=labels if labels is not None else None,
-        )
+        logits = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=input_ids.device)
+
+        for idx in range(math.ceil(N / self.overlap)):
+            outputs = self.bert(
+                start = idx * self.overlap
+                end = idx * self.overlap + self.ctx
+                input_ids=input_ids[:, start:end],
+                attention_mask=attention_mask[:, start:end],
+                labels=labels[:, start:end].contiguous() if labels is not None else None,
+            )
+            logits[:, start:end, :] = outputs.logits
+
         loss = None
         if labels is not None:
             if self.add_second_max_to_o:
@@ -110,7 +120,7 @@ class BertWithCRF(nn.Module):
                 outputs.logits[:, :, 0] += values[:, :, 1]
             is_pad = labels == -100
             crf_out = self.crf.forward(
-                outputs.logits,
+                logits,
                 labels.masked_fill(is_pad, 0),
                 mask=attention_mask.bool(),
                 reduction=self.crf_loss_reduction,
@@ -119,7 +129,7 @@ class BertWithCRF(nn.Module):
 
         if return_predictions or not self.training:
             preds = pad_sequence(
-                [torch.tensor(t) for t in self.crf.decode(outputs.logits, mask=attention_mask.bool())],
+                [torch.tensor(t) for t in self.crf.decode(logits, mask=attention_mask.bool())],
                 padding_value=PAD_TOKEN_ID,
                 batch_first=True,
             )
@@ -128,7 +138,7 @@ class BertWithCRF(nn.Module):
 
         return CRFOutput(
             loss=loss,
-            logits=outputs.logits,  # type:ignore
+            logits=logits,  # type:ignore
             hidden_states=outputs.hidden_states,
             attentions=None,
             predictions=preds,
