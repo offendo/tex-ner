@@ -19,7 +19,6 @@ python src/ner_training/main.py tune \
     --crf \
     --definition --theorem --proof --example \
     --trials 30 \
-    --data_dir /volume/ner/roberta-base-semitight \
+    --data_dir /volume/ner/$DATASET \
     --output_dir /volume/ner/outputs/$RUN_NAME \
-    --crf_loss_reduction token_mean \
-    --overlap_len 128
+    --crf_loss_reduction token_mean $FLAGS
