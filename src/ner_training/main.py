@@ -555,7 +555,7 @@ def test(
         compute_metrics=make_compute_metrics(label2id),
     )
     # Run eval on 'test' and 'val'
-    for split in ["test", "val"] + ["train"] if predict_on_train else []:
+    for split in ["test", "val"] + (["train"] if predict_on_train else []):
         if isinstance(ner_model, StackedBertWithCRF) or (hasattr(ner_model, "crf") and ner_model.crf is None):
             logits, labels, metrics = trainer.predict(data[split])  # type:ignore
             preds = np.argmax(logits, axis=-1)

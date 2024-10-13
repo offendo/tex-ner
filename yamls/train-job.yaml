@@ -36,7 +36,7 @@ spec:
             - name: TRAIN_FLAGS
               value: "--steps 1000 --crf_loss_reduction token_mean"
             - name: DATASET
-              value: roberta-base-stacked
+              value: roberta-base-semitight
             - name: LEARNING_RATE
               value: "0.00014445251022763073"
             - name: BATCH_SIZE
