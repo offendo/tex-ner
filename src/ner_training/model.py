@@ -102,16 +102,21 @@ class BertWithCRF(nn.Module):
         # Handle long documents by first passing everything through BERT and then feeding all at once to the CRF
         B, N = input_ids.shape
         logits = torch.zeros((B, N, self.num_labels), dtype=torch.float32, device=input_ids.device)
+        counts = torch.zeros(N, dtype=torch.int, device=input_ids.device)
 
         for idx in range(math.ceil(N / self.overlap)):
+            start = idx * self.overlap
+            end = idx * self.overlap + self.ctx
             outputs = self.bert(
-                start = idx * self.overlap
-                end = idx * self.overlap + self.ctx
                 input_ids=input_ids[:, start:end],
                 attention_mask=attention_mask[:, start:end],
                 labels=labels[:, start:end].contiguous() if labels is not None else None,
             )
-            logits[:, start:end, :] = outputs.logits
+            logits[:, start:end, :] += outputs.logits
+            counts[start:end] += 1
+
+        # Average them out
+        logits = logits / counts.view(1, -1, 1)
 
         loss = None
         if labels is not None:
