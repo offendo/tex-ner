@@ -236,6 +236,7 @@ def make_compute_metrics(label2id):
 @click.option("--stacked", is_flag=True)
 @click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
 @click.option("--add_second_max_to_o", is_flag=True)
+@click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
 @click.option("--randomize_last_layer", is_flag=True)
 @click.option("--freeze_base", is_flag=True)
 @click.option("--freeze_base_after_steps", type=int, default=None)
@@ -251,10 +252,11 @@ def make_compute_metrics(label2id):
 @click.option("--remove_nested", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
-@click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
 @click.option("--k_fold", type=int, default=1)
 @click.option("--fold", type=int, default=0)
+# Data Output
 @click.option("--predict_on_train", is_flag=True)
+@click.option("--trials", is_flag=True)
 # Labels
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
