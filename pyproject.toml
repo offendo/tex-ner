@@ -23,6 +23,7 @@ dependencies = [
     "pytorch-crf>=0.7.2",
     "ray[tune]>=2.36.0",
     "seaborn>=0.13.2",
+    "conlleval>=0.2",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
