@@ -228,12 +228,6 @@ def load_file(
         for lab, ids, m in zip(labels, input_ids, mask):
             sub_examples.append(dict(labels=lab, input_ids=ids, attention_mask=m))
 
-        # # Add in the last bit of the file that doesn't neatly fit
-        # for idx in range(math.ceil(n_tokens / context_len)):
-        #     labels = tokens.labels[idx * context_len : (idx + 1) * context_len]
-        #     input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
-        #     mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
-        #     sub_examples.append({"labels": labels, "input_ids": input_ids, "attention_mask": mask})
         return sub_examples
 
     return [tokens]
