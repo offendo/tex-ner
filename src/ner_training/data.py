@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 import wandb
 from datasets import Dataset, DatasetDict
-from more_itertools import chunked, flatten
+from more_itertools import chunked, flatten, windowed
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.utils.class_weight import compute_class_weight
@@ -162,6 +162,7 @@ def load_file(
     label2id: dict[str, int],
     tokenizer: PreTrainedTokenizer,
     context_len: int = -1,
+    overlap_len: int = -1,
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
     train_only_tags: list[str] | None = None,
@@ -217,12 +218,22 @@ def load_file(
 
     # Split it up into context-window sized chunks (for training)
     if context_len > 0:
+        if overlap_len <= 0:
+            overlap_len = context_len
+
         sub_examples = []
-        for idx in range(math.ceil(n_tokens / context_len)):
-            labels = tokens.labels[idx * context_len : (idx + 1) * context_len]
-            input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
-            mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
-            sub_examples.append({"labels": labels, "input_ids": input_ids, "attention_mask": mask})
+        input_ids = windowed(tokens.input_ids, n=context_len, step=overlap_len, fillvalue=tokenizer.pad_token_id)
+        labels = windowed(tokens.labels, n=context_len, step=overlap_len, fillvalue=PAD_TOKEN_ID)
+        mask = windowed(tokens.attention_mask, n=context_len, step=overlap_len, fillvalue=0)
+        for lab, ids, m in zip(labels, input_ids, mask):
+            sub_examples.append(dict(labels=lab, input_ids=ids, attention_mask=m))
+
+        # # Add in the last bit of the file that doesn't neatly fit
+        # for idx in range(math.ceil(n_tokens / context_len)):
+        #     labels = tokens.labels[idx * context_len : (idx + 1) * context_len]
+        #     input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
+        #     mask = tokens.attention_mask[idx * context_len : (idx + 1) * context_len]
+        #     sub_examples.append({"labels": labels, "input_ids": input_ids, "attention_mask": mask})
         return sub_examples
 
     return [tokens]
@@ -233,10 +244,10 @@ def load_data(
     tokenizer: PreTrainedTokenizer,
     label2id: dict[str, int],
     context_len: int,
+    overlap_len: int = -1,
     strip_bio_prefix: bool = True,
     examples_as_theorems: bool = False,
     train_only_tags: list[str] | None = None,
-    k_fold: int | None = None,
 ):
     logging.info(f"{train_only_tags=}")
     train_dir = Path(data_dir, "train")
@@ -257,6 +268,7 @@ def load_data(
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
             train_only_tags=train_only_tags,
+            overlap_len=overlap_len,
         )
         train.extend(examples)
     logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
@@ -271,6 +283,7 @@ def load_data(
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
             train_only_tags=train_only_tags,
+            overlap_len=context_len,
         )
         val.extend(examples)
     logging.info(f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files).")
@@ -285,6 +298,7 @@ def load_data(
             strip_bio_prefix=strip_bio_prefix,
             examples_as_theorems=examples_as_theorems,
             train_only_tags=train_only_tags,
+            overlap_len=context_len,
         )
         test.extend(examples)
     logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")

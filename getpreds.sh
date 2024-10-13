@@ -19,7 +19,7 @@ fi
 
 mkdir -p results/$NAME
 
-for SPLIT in test val; do
+for SPLIT in test val train; do
   if [[ $TYPE != "" ]]; then
     kubectl cp nilay-pod:/volume/ner/outputs/$NAME/$TYPE.$SPLIT.preds.json results/$NAME/$TYPE.$SPLIT.preds.json;
   else
@@ -39,18 +39,30 @@ import os
 
 softmax = lambda x: np.exp(x)/np.exp(x).sum(axis=-1).reshape(-1, 1)
 
-df = pd.concat([pd.read_json(f'results/$NAME/$TYPE.{split}.preds.json') for split in ['test', 'val'] if os.path.exists(f'results/$NAME/$TYPE.{split}.preds.json')])
-df['probs'] = df.logits.apply(lambda x: softmax(np.stack([np.array(y) for y in x], axis=0)).tolist())
-df = df[['labels', 'preds', 'tokens', 'probs']].explode(['labels', 'preds', 'tokens', 'probs'])
-df['probs'] = df['probs'].apply(lambda xs: ', '.join([f"{x:0.2f}" for x in xs]))
-df.to_csv('outputs.csv', sep='\t', index=False, float_format=lambda x: '%.2f')
+for split in ['test', 'val', 'train']:
+  if not os.path.exists(f'results/$NAME/$TYPE.{split}.preds.json'):
+    continue
+  df = pd.read_json(f'results/$NAME/$TYPE.{split}.preds.json')
+  df['probs'] = df.logits.apply(lambda x: softmax(np.stack([np.array(y) for y in x], axis=0)).tolist())
+  df = df[['labels', 'preds', 'tokens', 'probs']].explode(['labels', 'preds', 'tokens', 'probs'])
+  df['probs'] = df['probs'].apply(lambda xs: ', '.join([f"{x:0.2f}" for x in xs]))
+  df.to_csv(f'{split}.outputs.csv', sep='\t', index=False, float_format=lambda x: '%.2f')
+
 EOF
 
 python /dev/fd/3
 
-
 rye run python score.py multiclass -n $NAME -t $TYPE
 
-column -t -s $'\t' outputs.csv > results/$NAME/$TYPE.outputs.txt
-rm outputs.csv
+column -t -s $'\t' train.outputs.csv > results/$NAME/$TYPE.train.outputs.txt
+column -t -s $'\t' val.outputs.csv > results/$NAME/$TYPE.val.outputs.txt
+column -t -s $'\t' test.outputs.csv > results/$NAME/$TYPE.test.outputs.txt
+
+
+cat \
+  results/$NAME/$TYPE.val.outputs.txt \
+  results/$NAME/$TYPE.test.outputs.txt \
+  > results/$NAME/$TYPE.outputs.txt
+
+rm *.outputs.csv
 

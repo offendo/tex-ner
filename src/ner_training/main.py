@@ -232,6 +232,7 @@ def make_compute_metrics(label2id):
 @click.option("--model", type=str)
 @click.option("--crf", is_flag=True)
 @click.option("--context_len", default=512, type=int)
+@click.option("--overlap_len", default=512, type=int)
 @click.option("--stacked", is_flag=True)
 @click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
 @click.option("--add_second_max_to_o", is_flag=True)
@@ -311,6 +312,7 @@ def train(
     name: bool,
     reference: bool,
     context_len: int,
+    overlap_len: int,
     data_dir: Path,
     output_dir: Path,
     k_fold: int,
@@ -381,6 +383,7 @@ def train(
             data_dir,
             tokenizer,
             context_len=context_len,
+            overlap_len=overlap_len,
             label2id=label2id,
             examples_as_theorems=examples_as_theorems,
             train_only_tags=train_only_tags,
