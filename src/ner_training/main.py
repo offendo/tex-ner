@@ -119,6 +119,7 @@ def load_model(
     crf_loss_reduction: str = "token_mean",
     add_second_max_to_o: Optional[bool] = None,
     use_crf_cost_function: bool = False,
+    use_input_ids: bool = False,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
@@ -131,6 +132,7 @@ def load_model(
             dropout=dropout,
             debug=debug,
             crf=crf,
+            use_input_ids=use_input_ids,
         )
         logging.info(f"Loaded StackedBertWithCRF model with base of {pretrained_model_name}")
     else:
@@ -240,6 +242,7 @@ def make_compute_metrics(label2id):
 @click.option("--debug", is_flag=True)
 @click.option("--average_checkpoints", is_flag=True)
 @click.option("--use_crf_cost_function", is_flag=True)
+@click.option("--use_input_ids", is_flag=True)
 # Data Processing
 @click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
 @click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
@@ -299,6 +302,7 @@ def train(
     add_second_max_to_o: bool,
     average_checkpoints: bool,
     use_crf_cost_function: bool,
+    use_input_ids: bool,
     definition: bool,
     theorem: bool,
     proof: bool,
@@ -349,6 +353,7 @@ def train(
         crf_loss_reduction=crf_loss_reduction,
         add_second_max_to_o=add_second_max_to_o,
         use_crf_cost_function=use_crf_cost_function,
+        use_input_ids=use_input_ids,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
@@ -463,6 +468,8 @@ def train(
 def test(
     model: str,
     crf: bool,
+    add_second_max_to_o: bool,
+    use_input_ids: bool,
     checkpoint: Path | None,
     definition: bool,
     theorem: bool,
@@ -481,7 +488,6 @@ def test(
     examples_as_theorems: bool,
     train_only_tags: list[str],
     stacked: bool,
-    add_second_max_to_o: bool,
     remove_nested: bool,
     *args,
     **kwargs,
@@ -500,6 +506,7 @@ def test(
         dropout=0.0,
         stacked=stacked,
         add_second_max_to_o=add_second_max_to_o,
+        use_input_ids=use_input_ids,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 
@@ -708,6 +715,7 @@ def predict(
         checkpoint=checkpoint,
         dropout=0.0,
         add_second_max_to_o=add_second_max_to_o,
+        use_input_ids=use_input_ids,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
 

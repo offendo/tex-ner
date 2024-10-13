@@ -187,6 +187,7 @@ class StackedBertWithCRF(nn.Module):
         dropout: float = 0.0,
         debug: bool = False,
         crf: bool = False,
+        use_input_ids: bool = False,
     ):
         super().__init__()
         self.base = BertWithCRF(
@@ -199,6 +200,7 @@ class StackedBertWithCRF(nn.Module):
             debug=debug,
         )
         self.tag_pad_token = 0
+        self.use_input_ids = use_input_ids
 
         # Freeze the base model
         for param in self.base.parameters():
@@ -254,19 +256,6 @@ class StackedBertWithCRF(nn.Module):
         #     return_predictions=True,
         # )
 
-        # Get the input token embeddings
-        encodings = self.base.bert.forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            labels=labels,
-            output_attentions=output_attentions,
-            output_hidden_states=True,
-            return_dict=return_dict,
-        )
-
         tag_embeddings = self.tagger.roberta.embeddings(
             input_ids=tag_ids,
             position_ids=position_ids,
@@ -274,7 +263,23 @@ class StackedBertWithCRF(nn.Module):
         )
 
         # Create the input embeds as a sum of the encoded tokens + embedded tags
-        input_embeds = encodings.hidden_states[-1] + tag_embeddings
+        if self.use_input_ids:
+            # Get the input token embeddings
+            encodings = self.base.bert.forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                labels=labels,
+                output_attentions=output_attentions,
+                output_hidden_states=True,
+                return_dict=return_dict,
+            )
+
+            input_embeds = encodings.hidden_states[-1] + tag_embeddings
+        else:
+            input_embeds = tag_embeddings
 
         # Shift things up by 1 so we can use 0 for padding
         # bert_preds = (
