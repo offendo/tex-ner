@@ -44,6 +44,7 @@ for split in ['test', 'val', 'train']:
     continue
   df = pd.read_json(f'results/$NAME/$TYPE.{split}.preds.json')
   df['probs'] = df.logits.apply(lambda x: softmax(np.stack([np.array(y) for y in x], axis=0)).tolist())
+  df['tokens'] = df['tokens'].apply(lambda xs: [x for x in xs if x != '<pad>'])
   df = df[['labels', 'preds', 'tokens', 'probs']].explode(['labels', 'preds', 'tokens', 'probs'])
   df['probs'] = df['probs'].apply(lambda xs: ', '.join([f"{x:0.2f}" for x in xs]))
   df.to_csv(f'{split}.outputs.csv', sep='\t', index=False, float_format=lambda x: '%.2f')

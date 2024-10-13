@@ -24,19 +24,19 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: NTRIALS
-              value: "1"
+              value: "5"
             - name: RUN_NAME
-              value: base-fixed-crf-posttune
+              value: base-with-overlap
             - name: PREDICT_ON_TRAIN
-              value: "--predict_on_train"
+              value: ""
             - name: CRF
               value: "--crf"
             - name: CLASSES
               value: "--definition --theorem --proof --example"
             - name: DO_TRAIN
-              value: "false"
+              value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 1000 --crf_loss_reduction token_mean"
+              value: "--steps 3315 --crf_loss_reduction token_mean --overlap_len 256"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE
