@@ -51,7 +51,7 @@ for ((i=1; i<=$KFOLDS; i++)); do
       $CRF \
       --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-best \
       $CLASSES \
-      --kfold $KFOLDS \
+      --k_fold $KFOLDS \
       --fold $i \
       --data_dir /volume/ner/$DATASET \
       --output_dir /volume/ner/outputs/$ITER_NAME \
