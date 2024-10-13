@@ -18,11 +18,11 @@ if [[ -z $KFOLDS ]]; then
 fi
 
 pids=()
-for ((i=1; i<=$KFOLDS; i++)); do
+for ((i=0; i<$KFOLDS; i++)); do
 
   ITER_NAME=$RUN_NAME-$i
   echo "Beginning run $ITER_NAME"
-  mkdir -p "/volume/ner/outputs/$ITER_NAME"
+  # mkdir -p "/volume/ner/outputs/$ITER_NAME"
 
   # Run training
   export WANDB_RUN_NAME="$RUN_NAME"
