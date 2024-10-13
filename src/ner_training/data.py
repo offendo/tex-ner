@@ -289,9 +289,6 @@ def load_data(
         test.extend(examples)
     logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
 
-    if k_fold is not None:
-        pass
-
     return DatasetDict(
         {
             "train": Dataset.from_list(train),
@@ -384,3 +381,62 @@ def load_kfold_data(
             }
         )
     return DatasetDict(folds)
+
+
+def load_stacked_file(
+    path: str | Path,
+    tokenizer: PreTrainedTokenizer,
+    label2id: dict[str, int],
+):
+    # Load the data
+    data = pd.read_json(path)
+    logging.debug(f"Loaded file from {path}.")
+
+    # Tokenize the data from the file
+    examples = []
+    for i, row in data.iterrows():
+        labels = [label2id[l] for l in row.labels]
+        tag_ids = [label2id[t] + 1 for t in row.tags]
+        item = dict(tags=tag_ids, tokens=tokenizer.convert_tokens_to_ids(row.tokens), labels=labels)
+        examples.append(item)
+
+    return examples
+
+
+def load_stacked_data(
+    data_dir: str | Path,
+    tokenizer: PreTrainedTokenizer,
+    label2id: dict[str, int],
+):
+    train_dir = Path(data_dir, "train")
+    test_dir = Path(data_dir, "test")
+    val_dir = Path(data_dir, "val")
+
+    assert train_dir.exists(), f"Expected {train_dir} to exist."
+    assert test_dir.exists(), f"Expected {test_dir} to exist."
+    train = []
+    for path in os.listdir(train_dir):
+        examples = load_stacked_file(path=train_dir / path, tokenizer=tokenizer, label2id=label2id)
+        train.extend(examples)
+    logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
+
+    val = []
+    if val_dir.exists():
+        for path in os.listdir(val_dir):
+            examples = load_stacked_file(path=val_dir / path, tokenizer=tokenizer, label2id=label2id)
+            val.extend(examples)
+        logging.info(f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files).")
+
+    test = []
+    for path in os.listdir(test_dir):
+        examples = load_stacked_file(path=test_dir / path, tokenizer=tokenizer, label2id=label2id)
+        test.extend(examples)
+    logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
+
+    return DatasetDict(
+        {
+            "train": Dataset.from_list(train),
+            "val": Dataset.from_list(val),
+            "test": Dataset.from_list(test),
+        }
+    )
