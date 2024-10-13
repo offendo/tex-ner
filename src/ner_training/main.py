@@ -29,7 +29,6 @@ from transformers import (
     AutoModelForTokenClassification,
     AutoTokenizer,
     BatchEncoding,
-    DataCollatorForTokenClassification,
     EvalPrediction,
     PretrainedConfig,
     PreTrainedTokenizer,
@@ -42,6 +41,7 @@ from transformers.modeling_outputs import TokenClassifierOutput
 from ner_training.data import load_data, load_kfold_data, load_mmd_data, load_prediction_data, load_stacked_data
 from ner_training.model import BertWithCRF, StackedBertWithCRF
 from ner_training.utils import *
+from ner_training.collator import DataCollatorForTokenClassification
 
 set_seed(42)
 
@@ -368,7 +368,6 @@ def train(
         data = load_stacked_data(
             data_dir,
             tokenizer,
-            context_len=context_len,
             label2id=label2id,
         )
     else:
@@ -518,7 +517,6 @@ def test(
         data = load_stacked_data(
             data_dir,
             tokenizer,
-            context_len=context_len,
             label2id=label2id,
         )
     else:

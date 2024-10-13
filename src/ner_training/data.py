@@ -397,7 +397,7 @@ def load_stacked_file(
     for i, row in data.iterrows():
         labels = [label2id[l] for l in row.labels]
         tag_ids = [label2id[t] + 1 for t in row.tags]
-        item = dict(tags=tag_ids, tokens=tokenizer.convert_tokens_to_ids(row.tokens), labels=labels)
+        item = dict(tags=tag_ids, input_ids=tokenizer.convert_tokens_to_ids(row.tokens), labels=labels)
         examples.append(item)
 
     return examples
