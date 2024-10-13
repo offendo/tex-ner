@@ -56,7 +56,7 @@ for ((i=1; i<=$NTRIALS; i++)); do
         $CLASSES \
         --data_dir /volume/ner/$DATASET \
         --output_dir /volume/ner/outputs/$ITER_NAME \
-        --output_name "average"
+        --output_name "average" $PREDICT_ON_TRAIN
   fi
 
   if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-best ]; then
@@ -67,7 +67,7 @@ for ((i=1; i<=$NTRIALS; i++)); do
         $CLASSES \
         --data_dir /volume/ner/$DATASET \
         --output_dir /volume/ner/outputs/$ITER_NAME \
-        --output_name "best"
+        --output_name "best" $PREDICT_ON_TRAIN
   fi
 
 done;
