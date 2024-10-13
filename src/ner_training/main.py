@@ -110,6 +110,7 @@ def load_model(
     debug: bool,
     crf: bool,
     context_len: int,
+    overlap_len: int = 512,
     dropout: float = 0.0,
     checkpoint: str | Path | None = None,
     randomize_last_layer: bool = False,
@@ -129,6 +130,7 @@ def load_model(
             label2id=label2id,
             id2label=id2label,
             context_len=context_len,
+            overlap_len=overlap_len,
             dropout=dropout,
             debug=debug,
             crf=crf,
@@ -141,6 +143,7 @@ def load_model(
             label2id=label2id,
             id2label=id2label,
             context_len=context_len,
+            overlap_len=overlap_len,
             dropout=dropout,
             debug=debug,
             crf=crf,
@@ -232,7 +235,7 @@ def make_compute_metrics(label2id):
 @click.option("--model", type=str)
 @click.option("--crf", is_flag=True)
 @click.option("--context_len", default=512, type=int)
-@click.option("--overlap_len", default=512, type=int)
+@click.option("--model_overlap_len", default=512, type=int)
 @click.option("--stacked", is_flag=True)
 @click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
 @click.option("--add_second_max_to_o", is_flag=True)
@@ -254,6 +257,7 @@ def make_compute_metrics(label2id):
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--k_fold", type=int, default=1)
 @click.option("--fold", type=int, default=0)
+@click.option("--data_overlap_len", type=int, default=512)
 # Data Output
 @click.option("--predict_on_train", is_flag=True)
 @click.option("--trials", type=int, default=20)
@@ -314,7 +318,8 @@ def train(
     name: bool,
     reference: bool,
     context_len: int,
-    overlap_len: int,
+    model_overlap_len: int,
+    data_overlap_len: int,
     data_dir: Path,
     output_dir: Path,
     k_fold: int,
@@ -347,6 +352,7 @@ def train(
         model,
         crf=crf,
         context_len=context_len,
+        overlap_len=model_overlap_len,
         label2id=label2id,
         debug=debug,
         dropout=dropout,
@@ -385,7 +391,7 @@ def train(
             data_dir,
             tokenizer,
             context_len=context_len,
-            overlap_len=overlap_len,
+            overlap_len=data_overlap_len,
             label2id=label2id,
             examples_as_theorems=examples_as_theorems,
             train_only_tags=train_only_tags,
@@ -484,6 +490,8 @@ def test(
     name: bool,
     reference: bool,
     context_len: int,
+    model_overlap_len: int,
+    data_overlap_len: int,
     data_dir: Path,
     output_dir: Path,
     output_name: str | None,
@@ -507,6 +515,7 @@ def test(
         model,
         crf=crf,
         context_len=context_len,
+        overlap_len=model_overlap_len,
         label2id=label2id,
         debug=debug,
         checkpoint=checkpoint,
@@ -540,6 +549,7 @@ def test(
             data_dir,
             tokenizer,
             context_len=context_len,
+            overlap_len=data_overlap_len,
             label2id=label2id,
             examples_as_theorems=examples_as_theorems,
             train_only_tags=train_only_tags,
@@ -606,6 +616,8 @@ def tune(
     crf_loss_reduction: str,
     add_second_max_to_o: bool,
     remove_nested: bool,
+    model_overlap_len: int,
+    data_overlap_len: int,
     *args,
     **kwargs,
 ):
@@ -637,6 +649,7 @@ def tune(
         data_dir,
         tokenizer,
         context_len=context_len,
+        overlap_len=data_overlap_len,
         label2id=label2id,
         examples_as_theorems=examples_as_theorems,
         train_only_tags=train_only_tags,
