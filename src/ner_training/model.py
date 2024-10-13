@@ -229,6 +229,7 @@ class StackedBertWithCRF(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
+        tag_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         token_type_ids: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
@@ -239,19 +240,19 @@ class StackedBertWithCRF(nn.Module):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
-        bert_output = self.base.forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            labels=labels,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-            return_predictions=True,
-        )
+        # bert_output = self.base.forward(
+        #     input_ids=input_ids,
+        #     attention_mask=attention_mask,
+        #     token_type_ids=token_type_ids,
+        #     position_ids=position_ids,
+        #     head_mask=head_mask,
+        #     labels=labels,
+        #     inputs_embeds=inputs_embeds,
+        #     output_attentions=output_attentions,
+        #     output_hidden_states=output_hidden_states,
+        #     return_dict=return_dict,
+        #     return_predictions=True,
+        # )
 
         # Get the input token embeddings
         encodings = self.base.bert.forward(
@@ -269,22 +270,21 @@ class StackedBertWithCRF(nn.Module):
         )
 
         tag_embeddings = self.tagger.roberta.embeddings(
-            input_ids=input_ids,
+            input_ids=tag_ids,
             position_ids=position_ids,
             token_type_ids=token_type_ids,
-            inputs_embeds=inputs_embeds,
         )
 
         # Create the input embeds as a sum of the encoded tokens + embedded tags
         input_embeds = encodings + tag_embeddings
 
         # Shift things up by 1 so we can use 0 for padding
-        bert_preds = (
-            (bert_output.predictions + 1).to(input_ids.device).masked_fill(~attention_mask.bool(), self.tag_pad_token)
-        )
+        # bert_preds = (
+        #     (bert_output.predictions + 1).to(input_ids.device).masked_fill(~attention_mask.bool(), self.tag_pad_token)
+        # )
 
         tagger_output = self.tagger.forward(
-            input_ids=bert_preds,
+            input_ids=tag_ids,
             token_type_ids=token_type_ids,
             position_ids=position_ids,
             head_mask=head_mask,
