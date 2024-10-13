@@ -35,10 +35,11 @@ fi
 exec 3<<EOF 
 import pandas as pd
 import numpy as np
+import os
 
 softmax = lambda x: np.exp(x)/np.exp(x).sum(axis=-1).reshape(-1, 1)
 
-df = pd.concat([pd.read_json(f'results/$NAME/$TYPE.{split}.preds.json') for split in ['test', 'val']])
+df = pd.concat([pd.read_json(f'results/$NAME/$TYPE.{split}.preds.json') for split in ['test', 'val'] if os.path.exists(f'results/$NAME/$TYPE.{split}.preds.json')])
 df['probs'] = df.logits.apply(lambda x: softmax(np.stack([np.array(y) for y in x], axis=0)).tolist())
 df = df[['labels', 'preds', 'tokens', 'probs']].explode(['labels', 'preds', 'tokens', 'probs'])
 df['probs'] = df['probs'].apply(lambda xs: ', '.join([f"{x:0.2f}" for x in xs]))
