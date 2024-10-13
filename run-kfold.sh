@@ -22,11 +22,12 @@ for ((i=0; i<$KFOLDS; i++)); do
 
   ITER_NAME=$RUN_NAME-$i
   echo "Beginning run $ITER_NAME"
-  # mkdir -p "/volume/ner/outputs/$ITER_NAME"
+  mkdir -p "/volume/ner/outputs/$ITER_NAME"
 
   # Run training
   export WANDB_RUN_NAME="$RUN_NAME"
-  (if [[ $DO_TRAIN = 'true' ]]; then
+  (if [[ $DO_TRAIN = 'true' || $ONLY_TRAIN_FOLD = $i ]]; then
+
     CUDA_VISIBLE_DEVICES=$i python src/ner_training/main.py train \
       --model FacebookAI/roberta-base \
       $CRF \
