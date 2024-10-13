@@ -26,17 +26,17 @@ spec:
             - name: NTRIALS
               value: "1"
             - name: RUN_NAME
-              value: base-freeze-base-after-1500
+              value: base-fixed-crf-posttune
             - name: CRF
               value: "--crf"
             - name: CLASSES
               value: "--definition --theorem --proof --example"
             - name: DO_TRAIN
-              value: "true"
+              value: "false"
             - name: TRAIN_FLAGS
-              value: "--steps 3355 --crf_loss_reduction token_mean --average_checkpoints --freeze_base_after_steps 1500"
+              value: "--steps 1000 --crf_loss_reduction token_mean"
             - name: DATASET
-              value: roberta-base-semitight
+              value: roberta-base-stacked
             - name: LEARNING_RATE
               value: "0.00014445251022763073"
             - name: BATCH_SIZE
