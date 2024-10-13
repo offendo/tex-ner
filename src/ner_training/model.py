@@ -129,7 +129,7 @@ class BertWithCRF(nn.Module):
         return CRFOutput(
             loss=loss,
             logits=outputs.logits,  # type:ignore
-            hidden_states=None,
+            hidden_states=outputs.hidden_states,
             attentions=None,
             predictions=preds,
         )
@@ -253,6 +253,31 @@ class StackedBertWithCRF(nn.Module):
             return_predictions=True,
         )
 
+        # Get the input token embeddings
+        encodings = self.base.bert.forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            labels=labels,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+            return_predictions=True,
+        )
+
+        tag_embeddings = self.tagger.roberta.embeddings(
+            input_ids=input_ids,
+            position_ids=position_ids,
+            token_type_ids=token_type_ids,
+            inputs_embeds=inputs_embeds,
+        )
+
+        # Create the input embeds as a sum of the encoded tokens + embedded tags
+        input_embeds = encodings + tag_embeddings
+
         # Shift things up by 1 so we can use 0 for padding
         bert_preds = (
             (bert_output.predictions + 1).to(input_ids.device).masked_fill(~attention_mask.bool(), self.tag_pad_token)
@@ -265,6 +290,7 @@ class StackedBertWithCRF(nn.Module):
             head_mask=head_mask,
             attention_mask=attention_mask,
             labels=labels,
+            input_embeds=input_embeds,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
