@@ -10,7 +10,7 @@ import numpy as np
 
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils import PaddingStrategy
-from transformers.data.data_collator import DataCollatorMixin
+from transformers.data.data_collator import DataCollatorMixin, pad_without_fast_tokenizer_warning
 
 
 @dataclass
@@ -56,9 +56,11 @@ class DataCollatorForTokenClassification(DataCollatorMixin):
 
         label_name = "label" if "label" in features[0].keys() else "labels"
         labels = [feature[label_name] for feature in features] if label_name in features[0].keys() else None
-        tags = [feature["tags"] for feature in features] if "tags" in features[0].keys() else None
+        tag_ids = [feature["tag_ids"] for feature in features] if "tag_ids" in features[0].keys() else None
 
-        no_labels_features = [{k: v for k, v in feature.items() if k != label_name} for feature in features]
+        no_labels_features = [
+            {k: v for k, v in feature.items() if k != label_name and k != "tag_ids"} for feature in features
+        ]
 
         batch = pad_without_fast_tokenizer_warning(
             self.tokenizer,
@@ -89,11 +91,16 @@ class DataCollatorForTokenClassification(DataCollatorMixin):
                 [self.label_pad_token_id] * (sequence_length - len(label)) + to_list(label) for label in labels
             ]
 
-        if tags is not None:
+        if tag_ids is not None:
             if padding_side == "right":
-                batch["tags"] = [to_list(tag) + [self.tag_pad_token_id] * (sequence_length - len(tag)) for tag in tags]
+                batch["tag_ids"] = [
+                    to_list(tag) + [self.tag_pad_token_id] * (sequence_length - len(tag)) for tag in tag_ids
+                ]
             else:
-                batch["tags"] = [[self.tag_pad_token_id] * (sequence_length - len(tag)) + to_list(tag) for tag in tags]
+                batch["tag_ids"] = [
+                    [self.tag_pad_token_id] * (sequence_length - len(tag)) + to_list(tag) for tag in tag_ids
+                ]
 
+            batch["tag_ids"] = torch.tensor(batch["tag_ids"], dtype=torch.int64)
         batch[label_name] = torch.tensor(batch[label_name], dtype=torch.int64)
         return batch

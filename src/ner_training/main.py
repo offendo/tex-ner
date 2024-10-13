@@ -379,7 +379,9 @@ def train(
             examples_as_theorems=examples_as_theorems,
             train_only_tags=train_only_tags,
         )
-    collator = DataCollatorForTokenClassification(tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID)
+    collator = DataCollatorForTokenClassification(
+        tokenizer, padding=True, label_pad_token_id=PAD_TOKEN_ID, tag_pad_token_id=1
+    )
 
     # Build the trainer
     args = TrainingArguments(
@@ -395,13 +397,13 @@ def train(
         per_device_eval_batch_size=batch_size,
         logging_strategy="steps",
         logging_steps=logging_steps,
-        eval_strategy="steps",
+        eval_strategy="steps" if data["val"] else "no",
         eval_steps=50,
         save_strategy="steps",
         save_steps=100,
         save_total_limit=5,
-        load_best_model_at_end=True,
-        metric_for_best_model="f1",
+        load_best_model_at_end=True if data["val"] else False,
+        metric_for_best_model="f1" if data["val"] else None,
         use_cpu=DEVICE == "cpu",
     )
 
@@ -421,7 +423,7 @@ def train(
         args=args,
         data_collator=collator,
         train_dataset=data["train"],
-        eval_dataset=data["val"],
+        eval_dataset=data["val"] if data["val"] else None,
         compute_metrics=make_compute_metrics(label2id),
         class_weights=class_weights,
         callbacks=[FreezeBaseAfterStepsCallback(freeze_base_after_steps)],

@@ -262,11 +262,9 @@ class StackedBertWithCRF(nn.Module):
             position_ids=position_ids,
             head_mask=head_mask,
             labels=labels,
-            inputs_embeds=inputs_embeds,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
+            output_hidden_states=True,
             return_dict=return_dict,
-            return_predictions=True,
         )
 
         tag_embeddings = self.tagger.roberta.embeddings(
@@ -276,7 +274,7 @@ class StackedBertWithCRF(nn.Module):
         )
 
         # Create the input embeds as a sum of the encoded tokens + embedded tags
-        input_embeds = encodings + tag_embeddings
+        input_embeds = encodings.hidden_states[-1] + tag_embeddings
 
         # Shift things up by 1 so we can use 0 for padding
         # bert_preds = (
@@ -284,13 +282,12 @@ class StackedBertWithCRF(nn.Module):
         # )
 
         tagger_output = self.tagger.forward(
-            input_ids=tag_ids,
             token_type_ids=token_type_ids,
             position_ids=position_ids,
             head_mask=head_mask,
             attention_mask=attention_mask,
             labels=labels,
-            input_embeds=input_embeds,
+            inputs_embeds=input_embeds,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
