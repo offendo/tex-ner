@@ -253,6 +253,7 @@ def make_compute_metrics(label2id):
 @click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
 @click.option("--k_fold", type=int, default=1)
 @click.option("--fold", type=int, default=0)
+@click.option("--predict_on_train", is_flag=True)
 # Labels
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
@@ -489,6 +490,7 @@ def test(
     train_only_tags: list[str],
     stacked: bool,
     remove_nested: bool,
+    predict_on_train: bool,
     *args,
     **kwargs,
 ):
@@ -553,7 +555,7 @@ def test(
         compute_metrics=make_compute_metrics(label2id),
     )
     # Run eval on 'test' and 'val'
-    for split in ["test", "val"]:
+    for split in ["test", "val"] + ["train"] if predict_on_train else []:
         if isinstance(ner_model, StackedBertWithCRF) or (hasattr(ner_model, "crf") and ner_model.crf is None):
             logits, labels, metrics = trainer.predict(data[split])  # type:ignore
             preds = np.argmax(logits, axis=-1)
