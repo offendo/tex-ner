@@ -256,7 +256,7 @@ def make_compute_metrics(label2id):
 @click.option("--fold", type=int, default=0)
 # Data Output
 @click.option("--predict_on_train", is_flag=True)
-@click.option("--trials", is_flag=True)
+@click.option("--trials", type=int, default=20)
 # Labels
 @click.option("--definition", is_flag=True)
 @click.option("--theorem", is_flag=True)
