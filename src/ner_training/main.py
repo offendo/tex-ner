@@ -713,12 +713,14 @@ def predict(
     name: bool,
     reference: bool,
     context_len: int,
+    model_overlap_len: int,
     data_dir: Path,
     output_dir: Path,
     batch_size: int,
     debug: bool,
     add_second_max_to_o: bool,
     remove_nested: bool,
+    use_input_ids: bool,
     *args,
     **kwargs,
 ):
@@ -730,6 +732,7 @@ def predict(
         model,
         crf=crf,
         context_len=context_len,
+        overlap_len=model_overlap_len,
         label2id=label2id,
         debug=debug,
         checkpoint=checkpoint,
@@ -751,6 +754,7 @@ def predict(
     to_remove = ["file"] + (["tag"] if "tag" in data.column_names else [])
     loader = DataLoader(data.remove_columns(to_remove), batch_size=batch_size, shuffle=False, collate_fn=collator)
     all_predictions = []
+    all_logits = []
     for idx, batch in enumerate(tqdm(loader), start=1):
         if idx % 100 == 0:
             total = len(all_predictions)
@@ -758,6 +762,10 @@ def predict(
             output = {
                 "file": data["file"][start:total],
                 "preds": [[id2label[p] for p in pp if p != PAD_TOKEN_ID] for pp in all_predictions[start:total]],
+                "logits": [
+                    [l for p, l in zip(pp, ll) if p != PAD_TOKEN_ID]
+                    for pp, ll in zip(all_predictions[start:total], all_logits[start:total])
+                ],
                 "tokens": [
                     [tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"][start:total]
                 ],
@@ -776,10 +784,12 @@ def predict(
         )
         assert isinstance(batch_out.predictions, torch.Tensor)
         all_predictions.extend(batch_out.predictions.tolist())
+        all_logits.extend(batch_out.logits.tolist())
 
     output = {
         "file": data["file"],
         "preds": [[id2label[p] for p in pp if p != PAD_TOKEN_ID] for pp in all_predictions],
+        "logits": [[l for p, l in zip(pp, ll) if p != PAD_TOKEN_ID] for pp, ll in zip(all_predictions, all_logits)],
         "tokens": [[tokenizer.convert_ids_to_tokens(i) for i in item] for item in data["input_ids"]],
         "tag": data["tag"],
     }

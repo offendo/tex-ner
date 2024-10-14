@@ -16,6 +16,6 @@ python src/ner_training/main.py predict \
     --crf \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \
     $CLASSES \
-    --data_dir /volume/ner/base-model-predictions \
+    --data_dir /volume/ner/$DATASET \
     --output_dir /volume/ner/outputs/mmds-$OUTPUT_NAME/
 
