@@ -18,9 +18,9 @@ cd Sequence-Labeling-LLMs/ && accelerate launch seq2seq.py \
   --constrained_generation \
   --mixed_precision bf16 \
   --use_lora \
-  --train_tsvs /volume/ner/conll/train/*.txt \
-  --dev_tsvs /volume/ner/conll/val/*.txt \
-  --test_tsvs /volume/ner/conll/test/*.txt \
+  --train_tsvs /volume/ner/conll/train/*.tsv \
+  --dev_tsvs /volume/ner/conll/val/*.tsv \
+  --test_tsvs /volume/ner/conll/test/*.tsv \
   --num_beams 4 \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \
