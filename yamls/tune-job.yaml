@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-tune-overlap
+  name: nilay-ner-tune-filtered-data
 spec:
   template:
     spec:
@@ -26,7 +26,11 @@ spec:
           workingDir: /app/tex-ner
           env:
             - name: RUN_NAME
-              value: tune-overlap
+              value: tune-filtered-data
+            - name: DATASET
+              value: roberta-base-filtered-nilay
+            - name: FLAGS
+              value: ""
           volumeMounts:
             - name: git-repo
               mountPath: /app

@@ -23,12 +23,14 @@ spec:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
           env:
+            - name: DATASET
+              value: only-homology
             - name: OUTPUT_NAME
-              value: name-and-ref-fixed-crf-finetune
+              value: base-fixed-crf-posttune-homological-algebra
             - name: RUN_NAME
-              value: name-and-ref-fixed-crf-finetune
+              value: base-fixed-crf-posttune
             - name: CLASSES
-              value: "--name --reference"
+              value: "--definition --theorem --proof --example"
           command: ["bash", "predict.sh"]
           workingDir: /app/tex-ner
           volumeMounts:

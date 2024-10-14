@@ -2,6 +2,8 @@
 import logging
 
 import pandas as pd
+import json
+from pathlib import Path
 from more_itertools import flatten
 from transformers import (
     BatchEncoding,
@@ -33,7 +35,14 @@ class FreezeBaseAfterStepsCallback(TrainerCallback):
             scheduler._initial_step()
 
 
-def create_multiclass_labels(definition: bool, theorem: bool, proof: bool, example: bool, name: bool, reference: bool):
+def create_multiclass_labels(
+    definition: bool = False,
+    theorem: bool = False,
+    proof: bool = False,
+    example: bool = False,
+    name: bool = False,
+    reference: bool = False,
+):
     class_names = tuple(
         k
         for k, v in dict(
@@ -102,6 +111,42 @@ def align_annotations_to_tokens(tokens: BatchEncoding, char_tags: list[str]) -> 
             if b in tags_for_token and i in tags_for_token:
                 tags_for_token.remove(i)
         aligned_tags.append(tags_for_token)
+    return aligned_tags
+
+
+def align_tokens_annotations_to_words(tokens: BatchEncoding, token_tags: list[list[str]]) -> list[set[str]]:
+    """Converts token-level annotations to word-level
+
+    Parameters
+    ----------
+    tokens : BatchEncoding
+        Output of a huggingface tokenizer on text
+    char_tags : list[list[str]]
+        Token-level tags (list of tags per character)
+
+    Returns
+    -------
+    list[set[str]]
+        Word-level tags (list of tags per word)
+    """
+
+    aligned_tags: list[set[str]] = []
+    for idx in range(len(tokens.input_ids)):
+        word_idx = tokens.token_to_word(idx)
+        tags_for_word = list(set(token_tags[idx]))
+        if "O" in tags_for_word and len(tags_for_word) > 1:
+            tags_for_word.remove("O")
+
+        # Ensure that we only have B- or I- but not both
+        for tag in tags_for_word:
+            b = tag.replace("I-", "B-")
+            i = tag.replace("B-", "I-")
+            if b in tags_for_word and i in tags_for_word:
+                tags_for_word.remove(i)
+        if word_idx >= len(aligned_tags):
+            aligned_tags.append(set(tags_for_word))
+        else:
+            aligned_tags[word_idx].update(tags_for_word)
     return aligned_tags
 
 
@@ -226,3 +271,45 @@ def convert_tags_to_annotations(tokens: list[str], tags: list[str], tokenizer: P
             current_annos[lab].append(tok)
             current_tags.add(lab)
     return annotations
+
+
+def convert_iob_tags_to_conll(annos: str | Path, output_file: str | Path, tokenizer: PreTrainedTokenizer):
+    with open(annos, "r") as f:
+        data = json.load(f)
+
+    tokens, tags = zip(*data["iob_tags"])
+
+    tex = tokenizer.convert_tokens_to_string(tokens)
+    enc = tokenizer(tex, add_special_tokens=False)
+    word_level_tags = align_tokens_annotations_to_words(enc, tags)
+    word_idxs = enc.word_ids()
+    word_spans = []
+    for token_idx in range(len(enc.input_ids)):
+        word_idx = word_idxs[token_idx]
+        span = enc.token_to_chars(token_idx)
+        if word_idx is None or span is None:
+            continue
+        start, end = span
+        if word_idx < len(word_spans):
+            prev_start, prev_end = word_spans[word_idx]
+            word_spans[word_idx] = (prev_start, end)
+        else:
+            word_spans.append((start, end))
+    words = [tex[start:end] for start, end in word_spans]
+    label2id = create_multiclass_labels(definition=True, theorem=True, proof=True, example=True)
+    lines = []
+    for word, word_tags in zip(words, word_level_tags):
+        if len(word.strip()) == 0:
+            continue
+        if len(word_tags) == 0:
+            tag = "O"
+        else:
+            word_tags = [t.replace("I-", "").replace("B-", "") for t in word_tags]
+            filtered_tags = sorted([t for t in word_tags if t in label2id])
+            tag = "-".join(filtered_tags)
+        line = f"{word}\t{tag}"
+        lines.append(line)
+    conll = "\n".join(lines)
+    with open(output_file, "w") as f:
+        f.write(conll)
+    return conll

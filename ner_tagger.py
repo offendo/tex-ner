@@ -230,7 +230,7 @@ def adagrad(training_size, epochs, learning_rate, gradient, parameters, training
             for key, value in grad.fdict.items():
                 sumSq.fdict[key] = sumSq.fdict.get(key, 0) + value * value
                 parameters.fdict[key] = parameters.fdict.get(key, 0) - learning_rate * value / math.sqrt(
-                    sumSq.fdict[key]
+                    sumSq.fdict[key] + 1
                 )
             counter += 1
         i += 1
@@ -297,7 +297,7 @@ def train(data, tagset, epochs):
         return adagrad(
             len(data),
             epochs,
-            learning_rate=args.learning_rate,
+            learning_rate=args.lr,
             gradient=perceptron_gradient,
             parameters=parameters,
             training_observer=training_observer,
@@ -642,10 +642,14 @@ class Features(object):
 
         # Max prob for tag
         same = cur_tag == self.inputs["preds"][i]
-        softmax = lambda x: np.exp(x) / np.exp(x).sum(axis=-1).reshape(-1)
-        max_prob_gt_99 = max(softmax(np.array(self.inputs["logits"][i]))) > 0.99
-        feats.times_plus_equal(1, FeatureVector({"same+BProbgt.99": int(same and max_prob_gt_99)}))
-        feats.times_plus_equal(1, FeatureVector({f"t={cur_tag}+same+BProbgt.99": int(same and max_prob_gt_99)}))
+        # softmax = lambda x: np.exp(x) / np.exp(x).sum(axis=-1).reshape(-1)
+        # max_prob_gt_99 = max(softmax(np.array(self.inputs["logits"][i]))) > 0.99
+        # feats.times_plus_equal(1, FeatureVector({"same+BProbgt.99": int(same and max_prob_gt_99)}))
+        # feats.times_plus_equal(1, FeatureVector({f"t={cur_tag}+same+BProbgt.99": int(same and max_prob_gt_99)}))
+
+        # # Current tag's BERT log-probability
+        # prob_of_cur_tag = self.inputs["logits"][i][self.label2id[cur_tag]]
+        # feats.times_plus_equal(1, FeatureVector({"logp(t)=": prob_of_cur_tag}))
 
         # Sequence of predictions
         pred_cur = self.inputs["preds"][i]
@@ -657,13 +661,12 @@ class Features(object):
             pred_next = self.inputs["preds"][i + 1]
             feats.times_plus_equal(1, FeatureVector({f"t={cur_tag}+pi+1={pred_next}": 1}))
 
-        # Current tag's BERT log-probability
-        prob_of_cur_tag = self.inputs["logits"][i][self.label2id[cur_tag]]
-        feats.times_plus_equal(1, FeatureVector({"logp(t)=": prob_of_cur_tag}))
+        # Same as predicted
+        feats.times_plus_equal(1, FeatureVector({"same=": int(same)}))
 
-        # # Sequence length of current prediction (log length)
-        # feats.times_plus_equal(1, FeatureVector({"same+len=": math.log(self.sequence_lengths[i]) if same else 0}))
-        # feats.times_plus_equal(1, FeatureVector({"t={cur_tag}+len({pred_cur})=": math.log(self.sequence_lengths[i])}))
+        # Sequence length of current prediction (log length)
+        feats.times_plus_equal(1, FeatureVector({"same+len=": math.log(self.sequence_lengths[i]) if same else 0}))
+        feats.times_plus_equal(1, FeatureVector({"t={cur_tag}+len({pred_cur})=": math.log(self.sequence_lengths[i])}))
 
         # # Sequence length of current prediction (bucketed)
         # if self.sequence_lengths[i] < 2:
