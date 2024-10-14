@@ -1,5 +1,19 @@
 #!/bin/bash
 
+# Login
+huggingface-cli login --token $(cat /etc/api-tokens/hf-token)
+wandb login $(cat /etc/api-tokens/wandb-token)
+
+# Re-install local code
+pip install -U .
+
+# Determine run name
+#RUN_NAME=$(curl https://random-word-api.herokuapp.com/word?number=2 | tr '[,"]' '-' | sed 's/--//g')
+if [[ -z $RUN_NAME ]]; then
+  echo "Error: empty RUN_NAME"
+  exit 1
+fi
+
 cd Sequence-Labeling-LLMs/ && accelerate launch seq2seq.py \
   --constrained_generation \
   --mixed_precision bf16 \
