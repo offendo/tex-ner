@@ -1,6 +1,7 @@
 #!/bin/bash
 
 cd Sequence-Labeling-LLMs/ && accelerate launch seq2seq.py \
+  --constrained_generation \
   --mixed_precision bf16 \
   --use_lora \
   --train_tsvs /volume/ner/conll/train/*.txt \
