@@ -390,7 +390,7 @@ def write_predictions(out_filename, all_inputs, parameters, tagset):
     :return:
     """
     # raise NotImplementedError("Rewrite this function")
-    with open(directory + "/" + out_filename, "w", encoding="utf-8") as f:
+    with open(directory + "/" + out_filename.replace("/", "."), "w", encoding="utf-8") as f:
         for inputs in all_inputs:
             input_len = len(inputs["tokens"])
             tag_seq = predict(inputs, input_len, parameters, tagset)
@@ -400,7 +400,7 @@ def write_predictions(out_filename, all_inputs, parameters, tagset):
                         [
                             inputs["tokens"][i + 1],
                             inputs["preds"][i + 1],
-                            inputs["labels"][i + 1],
+                            inputs["labels"][i + 1] if "labels" in inputs else "",
                             tag,
                             # inputs["logits"][i + 1],
                         ]
@@ -735,7 +735,7 @@ class FeatureVector(object):
         :return: None
         """
         self.fdict = {}
-        with open(directory + "/" + filename, "r") as f:
+        with open(filename, "r") as f:
             for line in f.readlines():
                 txt = line.split()
                 self.fdict[txt[0]] = float(txt[1])
