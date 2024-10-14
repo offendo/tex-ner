@@ -1,0 +1,3 @@
+[submodule "Sequence-Labeling-LLMs"]
+	path = Sequence-Labeling-LLMs
+	url = https://github.com/ikergarcia1996/Sequence-Labeling-LLMs.git
