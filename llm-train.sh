@@ -29,16 +29,16 @@ cd Sequence-Labeling-LLMs/ && \
   --num_beams 1 \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \
-  --per_device_train_batch_size 4 \
+  --per_device_train_batch_size $BATCH_SIZE \
   --gradient_accumulation_steps 1 \
-  --per_device_eval_batch_size 4 \
+  --per_device_eval_batch_size $BATCH_SIZE \
   --learning_rate 1e-4 \
   --optim adamw \
   --lr_scheduler_type cosine \
   --num_warmup_steps 400 \
   --num_train_epochs 50 \
   --eval_every_epochs 1 \
-  --max_source_length 1024 \
-  --max_target_length 1024 \
+  --max_source_length $SEQUENCE_LENGTH \
+  --max_target_length $SEQUENCE_LENGTH \
   --output_dir /volume/ner/outputs/$RUN_NAME/ \
   --project_name llm-ner
