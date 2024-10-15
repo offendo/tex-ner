@@ -38,8 +38,8 @@ cd Sequence-Labeling-LLMs/ && \
   --optim adamw8bits \
   --lr_scheduler_type cosine \
   --num_warmup_steps 300 \
-  --num_train_epochs 20 \
-  --eval_every_steps 500 \
+  --num_train_epochs 24 \
+  --eval_every_epoch 3 \
   --max_source_length $SEQUENCE_LENGTH \
   --max_target_length $SEQUENCE_LENGTH \
   --output_dir /volume/ner/outputs/$RUN_NAME/ \
