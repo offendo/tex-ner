@@ -6,11 +6,9 @@ authors = [
     { name = "Nilay Patel", email = "nilaypatel2@gmail.com" }
 ]
 dependencies = [
-    "transformers>=4.42.4",
     "torch>=2.4.0",
     "pandas>=2.2.2",
     "datasets>=2.20.0",
-    "tokenizers>=0.19.1",
     "evaluate>=0.4.2",
     "more-itertools>=10.3.0",
     "scikit-learn>=1.5.1",
@@ -26,6 +24,7 @@ dependencies = [
     "conlleval>=0.2",
     "peft>=0.13.2",
     "bitsandbytes>=0.42.0",
+    "transformers==4.33.1",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
