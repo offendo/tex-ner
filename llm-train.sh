@@ -19,7 +19,7 @@ DEVICES=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
 cd Sequence-Labeling-LLMs/ && \
   accelerate launch  --num_processes $DEVICES \
   seq2seq.py \
-  --constrained_generation \
+  --unconstrained_generation \
   --mixed_precision bf16 \
   --use_lora \
   --quantization 4 \
