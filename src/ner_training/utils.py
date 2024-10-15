@@ -312,7 +312,7 @@ def convert_iob_tags_to_conll(annos: str | Path, output_file: str | Path, tokeni
         else:
             word_tags = [t.replace("I-", "").replace("B-", "") for t in word_tags]
             filtered_tags = sorted([t for t in word_tags if t in label2id])
-            tag = "-".join(filtered_tags)
+            tag = ".".join(filtered_tags)
 
             # If we're at the beginning of a new tag, use 'B-'
             if index == 0 or tag not in conll_tags[index - 1]:

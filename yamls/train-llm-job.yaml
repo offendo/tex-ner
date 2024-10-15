@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-base-test
+  name: nilay-ner-train-llm
 spec:
   template:
     spec:
@@ -39,13 +39,13 @@ spec:
           resources:
             limits:
               memory: 64Gi
-              cpu: 2
-              nvidia.com/gpu: 1
+              cpu: 4
+              nvidia.com/gpu: 4
               ephemeral-storage: 100Gi
             requests:
               memory: 64Gi
-              cpu: 2
-              nvidia.com/gpu: 1
+              cpu: 4
+              nvidia.com/gpu: 4
               ephemeral-storage: 100Gi
       initContainers:
         - name: git-sync
