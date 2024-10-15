@@ -23,10 +23,12 @@ cd Sequence-Labeling-LLMs/ && \
   --mixed_precision bf16 \
   --use_lora \
   --quantization 4 \
+  --force_auto_device_map 1 \
+  --use_flash_attention \
   --train_tsvs /volume/ner/conll/train/train.tsv \
   --dev_tsvs /volume/ner/conll/val/val.tsv \
   --test_tsvs /volume/ner/conll/test/test.tsv /volume/ner/conll/train/train.tsv /volume/ner/conll/val/val.tsv \
-  --num_beams 4 \
+  --num_beams 1 \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \
   --per_device_train_batch_size $BATCH_SIZE \
