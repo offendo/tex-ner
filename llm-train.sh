@@ -15,15 +15,16 @@ if [[ -z $RUN_NAME ]]; then
 fi
 
 cd Sequence-Labeling-LLMs/ && \
-  accelerate launch  --num_processes 4 \
+  accelerate launch  --num_processes 1 \
   seq2seq.py \
   --constrained_generation \
   --mixed_precision bf16 \
   --use_lora \
+  --quantization 4 \
   --train_tsvs /volume/ner/conll/train/*.tsv \
   --dev_tsvs /volume/ner/conll/val/*.tsv \
   --test_tsvs /volume/ner/conll/test/*.tsv \
-  --num_beams 4 \
+  --num_beams 1 \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \
   --per_device_train_batch_size 4 \
@@ -34,8 +35,8 @@ cd Sequence-Labeling-LLMs/ && \
   --lr_scheduler_type cosine \
   --num_warmup_steps 400 \
   --num_train_epochs 50 \
-  --eval_every_epochs 3 \
-  --max_source_length 2048 \
-  --max_target_length 2048 \
+  --eval_every_epochs 1 \
+  --max_source_length 1024 \
+  --max_target_length 1024 \
   --output_dir /volume/ner/outputs/$RUN_NAME/ \
   --project_name llm-ner

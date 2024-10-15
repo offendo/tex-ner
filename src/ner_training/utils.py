@@ -277,7 +277,9 @@ def convert_tags_to_annotations(tokens: list[str], tags: list[str], tokenizer: P
     return annotations
 
 
-def convert_iob_tags_to_conll(annos: str | Path, output_file: str | Path, tokenizer: PreTrainedTokenizer):
+def convert_iob_tags_to_conll(
+    annos: str | Path, output_file: str | Path, tokenizer: PreTrainedTokenizer, max_sequence_length: int = 512
+):
     with open(annos, "r") as f:
         data = json.load(f)
 
@@ -325,6 +327,8 @@ def convert_iob_tags_to_conll(annos: str | Path, output_file: str | Path, tokeni
 
         line = f"{word}\t{tag}"
         lines.append(line)
+        if index % max_sequence_length == 0:
+            lines.append("")
     conll = "\n".join(lines)
     with open(output_file, "w") as f:
         f.write(conll)
