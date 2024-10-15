@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-llm-llama
+  name: nilay-ner-train-llm-llama-instruct-constrained-copy
 spec:
   template:
     spec:
@@ -25,15 +25,27 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: Meta-Llama-3-8B
+              value: meta-llama-3-8b-instruct-constrained-copy
+            - name: CONSTRAINED
+              value: "--constrained_generation"
             - name: MODEL
-              value: meta-llama/Meta-Llama-3-8B
+              value: meta-llama/Meta-Llama-3-8B-Instruct
             - name: SEQUENCE_LENGTH
               value: "1024"
             - name: BATCH_SIZE
-              value: "4"
+              value: "1"
             - name: TOKENIZERS_PARALLELISM
               value: "false"
+            - name: GRAD_ACCUMULATION
+              value: "1"
+            - name: WARMUP_STEPS
+              value: "100"
+            - name: EPOCHS
+              value: "200"
+            - name: EVAL_EVERY_EPOCHS
+              value: "5"
+            - name: FLAGS
+              value: ""
           command: ["bash", "llm-train.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
@@ -47,12 +59,12 @@ spec:
             limits:
               memory: 48Gi
               cpu: 2
-              nvidia.com/gpu: 2
+              nvidia.com/gpu: 1
               ephemeral-storage: 50Gi
             requests:
               memory: 48Gi
               cpu: 2
-              nvidia.com/gpu: 2
+              nvidia.com/gpu: 1
               ephemeral-storage: 50Gi
       initContainers:
         - name: git-sync

@@ -19,7 +19,7 @@ DEVICES=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
 cd Sequence-Labeling-LLMs/ && \
   accelerate launch  --num_processes $DEVICES \
   seq2seq.py \
-  --constrained_generation \
+  $CONSTRAINED \
   --mixed_precision bf16 \
   --use_lora \
   --quantization 4 \
@@ -32,14 +32,14 @@ cd Sequence-Labeling-LLMs/ && \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \
   --per_device_train_batch_size $BATCH_SIZE \
-  --gradient_accumulation_steps 1 \
+  --gradient_accumulation_steps $GRAD_ACCUMULATION \
   --per_device_eval_batch_size $BATCH_SIZE \
   --learning_rate 2e-5 \
   --optim adamw8bits \
   --lr_scheduler_type cosine \
-  --num_warmup_steps 300 \
-  --num_train_epochs 24 \
-  --eval_every_epoch 3 \
+  --num_warmup_steps $WARMUP_STEPS \
+  --num_train_epochs $EPOCHS \
+  --eval_every_epoch $EVAL_EVERY_EPOCHS \
   --max_source_length $SEQUENCE_LENGTH \
   --max_target_length $SEQUENCE_LENGTH \
   --output_dir /volume/ner/outputs/$RUN_NAME/ \
