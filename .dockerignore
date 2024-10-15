@@ -8,3 +8,7 @@ wandb/
 # Nautilus stuff
 *.json
 *.yaml
+
+posttune/
+mmd_data/
+crf_data/
