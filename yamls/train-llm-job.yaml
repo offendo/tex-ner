@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-llm
+  name: nilay-ner-train-llm-t5
 spec:
   template:
     spec:
@@ -16,6 +16,7 @@ spec:
                       - NVIDIA-A100-SXM4-80GB
                       - NVIDIA-A100-80GB-PCIe
                       - NVIDIA-A100-80GB-PCIe
+                      # - NVIDIA-A40
                       - NVIDIA-GeForce-RTX-3090
       imagePullSecrets:
         - name: nilay-ghcr-key
@@ -24,29 +25,35 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: flan-t5-1
+              value: flan-t5-base
             - name: MODEL
-              value: google/flan-t5-large
+              value: google/flan-t5-base
+            - name: SEQUENCE_LENGTH
+              value: "256"
+            - name: BATCH_SIZE
+              value: "4"
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
           command: ["bash", "llm-train.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
             - name: git-repo
               mountPath: /app
-            - name: nilay-data-volume-rwm-east
+            - name: nilay-data-volume-rwm-central
               mountPath: /volume
             - name: api-tokens
               mountPath: /etc/api-tokens
           resources:
             limits:
-              memory: 64Gi
-              cpu: 4
-              nvidia.com/gpu: 4
-              ephemeral-storage: 100Gi
+              memory: 48Gi
+              cpu: 2
+              nvidia.com/gpu: 1
+              ephemeral-storage: 20Gi
             requests:
-              memory: 64Gi
-              cpu: 4
-              nvidia.com/gpu: 4
-              ephemeral-storage: 100Gi
+              memory: 48Gi
+              cpu: 2
+              nvidia.com/gpu: 1
+              ephemeral-storage: 20Gi
       initContainers:
         - name: git-sync
           image: registry.k8s.io/git-sync/git-sync:v4.1.0
@@ -78,7 +85,7 @@ spec:
               memory: 4Gi
               cpu: 1
           volumeMounts:
-            - name: nilay-data-volume-rwm-east
+            - name: nilay-data-volume-rwm-central
               mountPath: /volume
       securityContext:
         fsGroup: 101
@@ -89,9 +96,9 @@ spec:
           secret:
             defaultMode: 0400
             secretName: nilay-git-creds
-        - name: nilay-data-volume-rwm-east
+        - name: nilay-data-volume-rwm-central
           persistentVolumeClaim:
-            claimName: nilay-data-volume-rwm-east
+            claimName: nilay-data-volume-rwm-central
         - name: api-tokens
           secret:
             defaultMode: 0400

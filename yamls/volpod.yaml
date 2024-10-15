@@ -12,7 +12,9 @@ spec:
       workingDir: /
       volumeMounts:
         - name: nilay-data-volume-rwm-east
-          mountPath: /volume
+          mountPath: /volume-east
+        - name: nilay-data-volume-rwm-central
+          mountPath: /volume-central
       resources:
         limits:
           memory: 16Gi
@@ -28,4 +30,7 @@ spec:
     - name: nilay-data-volume-rwm-east
       persistentVolumeClaim:
         claimName: nilay-data-volume-rwm-east
+    - name: nilay-data-volume-rwm-central
+      persistentVolumeClaim:
+        claimName: nilay-data-volume-rwm-central
   restartPolicy: Never
