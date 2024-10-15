@@ -23,9 +23,9 @@ cd Sequence-Labeling-LLMs/ && \
   --mixed_precision bf16 \
   --use_lora \
   --quantization 4 \
-  --train_tsvs /volume/ner/conll/train/*.tsv \
-  --dev_tsvs /volume/ner/conll/val/*.tsv \
-  --test_tsvs /volume/ner/conll/test/*.tsv \
+  --train_tsvs /volume/ner/conll/train/train.tsv \
+  --dev_tsvs /volume/ner/conll/val/val.tsv \
+  --test_tsvs /volume/ner/conll/test/test.tsv \
   --num_beams 1 \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \
@@ -33,7 +33,7 @@ cd Sequence-Labeling-LLMs/ && \
   --gradient_accumulation_steps 1 \
   --per_device_eval_batch_size $BATCH_SIZE \
   --learning_rate 1e-4 \
-  --optim adamw \
+  --optim adamw8bits \
   --lr_scheduler_type cosine \
   --num_warmup_steps 400 \
   --num_train_epochs 50 \
