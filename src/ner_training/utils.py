@@ -312,7 +312,7 @@ def convert_iob_tags_to_conll(
         if len(word_tags) == 0:
             tag = "O"
         else:
-            word_tags = [t.replace("I-", "").replace("B-", "") for t in word_tags]
+            word_tags = set([t.replace("I-", "").replace("B-", "") for t in word_tags])
             filtered_tags = sorted([t for t in word_tags if t in label2id])
             tag = ".".join(filtered_tags)
 
