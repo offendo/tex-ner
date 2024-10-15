@@ -25,14 +25,14 @@ cd Sequence-Labeling-LLMs/ && \
   --quantization 4 \
   --train_tsvs /volume/ner/conll/train/train.tsv \
   --dev_tsvs /volume/ner/conll/val/val.tsv \
-  --test_tsvs /volume/ner/conll/test/test.tsv \
-  --num_beams 1 \
+  --test_tsvs /volume/ner/conll/test/test.tsv /volume/ner/conll/train/train.tsv /volume/ner/conll/val/val.tsv \
+  --num_beams 4 \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \
   --per_device_train_batch_size $BATCH_SIZE \
   --gradient_accumulation_steps 1 \
   --per_device_eval_batch_size $BATCH_SIZE \
-  --learning_rate 1e-4 \
+  --learning_rate 2e-5 \
   --optim adamw8bits \
   --lr_scheduler_type cosine \
   --num_warmup_steps 100 \

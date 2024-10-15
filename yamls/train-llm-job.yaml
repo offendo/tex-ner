@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-llm-t5
+  name: nilay-ner-train-llm-llama
 spec:
   template:
     spec:
@@ -16,7 +16,7 @@ spec:
                       - NVIDIA-A100-SXM4-80GB
                       - NVIDIA-A100-80GB-PCIe
                       - NVIDIA-A100-80GB-PCIe
-                      # - NVIDIA-A40
+                      - NVIDIA-A40
                       - NVIDIA-GeForce-RTX-3090
       imagePullSecrets:
         - name: nilay-ghcr-key
@@ -25,11 +25,11 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: flan-t5-base
+              value: Meta-Llama-3-8B
             - name: MODEL
-              value: google/flan-t5-base
+              value: meta-llama/Meta-Llama-3-8B
             - name: SEQUENCE_LENGTH
-              value: "256"
+              value: "1024"
             - name: BATCH_SIZE
               value: "4"
             - name: TOKENIZERS_PARALLELISM
@@ -47,13 +47,13 @@ spec:
             limits:
               memory: 48Gi
               cpu: 2
-              nvidia.com/gpu: 1
-              ephemeral-storage: 20Gi
+              nvidia.com/gpu: 2
+              ephemeral-storage: 50Gi
             requests:
               memory: 48Gi
               cpu: 2
-              nvidia.com/gpu: 1
-              ephemeral-storage: 20Gi
+              nvidia.com/gpu: 2
+              ephemeral-storage: 50Gi
       initContainers:
         - name: git-sync
           image: registry.k8s.io/git-sync/git-sync:v4.1.0
