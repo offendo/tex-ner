@@ -25,9 +25,9 @@ cd Sequence-Labeling-LLMs/ && \
   --quantization 4 \
   --force_auto_device_map 1 \
   --use_flash_attention \
-  --train_tsvs /volume/ner/conll/train/train.tsv \
-  --dev_tsvs /volume/ner/conll/val/val.tsv \
-  --test_tsvs /volume/ner/conll/test/test.tsv /volume/ner/conll/train/train.tsv /volume/ner/conll/val/val.tsv \
+  --train_tsvs /volume/ner/$DATASET/train/train.tsv \
+  --dev_tsvs /volume/ner/$DATASET/val/val.tsv \
+  --test_tsvs /volume/ner/$DATASET/test/test.tsv /volume/ner/$DATASET/train/train.tsv /volume/ner/$DATASET/val/val.tsv \
   --num_beams 1 \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \

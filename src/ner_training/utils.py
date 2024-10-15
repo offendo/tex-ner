@@ -327,8 +327,8 @@ def convert_iob_tags_to_conll(
 
         line = f"{word}\t{tag}"
         lines.append(line)
-        if index % max_sequence_length == 0:
-            lines.append("")
+        # if index % max_sequence_length == 0:
+        #     lines.append("")
     conll = "\n".join(lines)
     with open(output_file, "w") as f:
         f.write(conll)
