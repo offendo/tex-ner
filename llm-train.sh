@@ -15,7 +15,7 @@ if [[ -z $RUN_NAME ]]; then
 fi
 
 cd Sequence-Labeling-LLMs/ && \
-  accelerate launch  --num_processes 1 \
+  accelerate launch  --num_processes 4 \
   seq2seq.py \
   --constrained_generation \
   --mixed_precision bf16 \
