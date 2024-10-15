@@ -14,8 +14,10 @@ if [[ -z $RUN_NAME ]]; then
   exit 1
 fi
 
+DEVICES=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
+
 cd Sequence-Labeling-LLMs/ && \
-  accelerate launch  --num_processes 4 \
+  accelerate launch  --num_processes $DEVICES \
   seq2seq.py \
   --constrained_generation \
   --mixed_precision bf16 \
