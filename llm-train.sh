@@ -16,6 +16,7 @@ fi
 
 cd Sequence-Labeling-LLMs/ && accelerate launch seq2seq.py \
   --constrained_generation \
+  --num_processes 4 \
   --mixed_precision bf16 \
   --use_lora \
   --train_tsvs /volume/ner/conll/train/*.tsv \
@@ -24,9 +25,9 @@ cd Sequence-Labeling-LLMs/ && accelerate launch seq2seq.py \
   --num_beams 4 \
   --num_return_sequences 1 \
   --model_name_or_path $MODEL \
-  --per_device_train_batch_size 16 \
+  --per_device_train_batch_size 4 \
   --gradient_accumulation_steps 1 \
-  --per_device_eval_batch_size 8 \
+  --per_device_eval_batch_size 4 \
   --learning_rate 1e-4 \
   --optim adamw \
   --lr_scheduler_type cosine \

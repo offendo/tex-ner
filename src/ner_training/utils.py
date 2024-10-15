@@ -42,6 +42,7 @@ def create_multiclass_labels(
     example: bool = False,
     name: bool = False,
     reference: bool = False,
+    add_prefix: bool = False,
 ):
     class_names = tuple(
         k
@@ -64,10 +65,13 @@ def create_multiclass_labels(
         new.append(arg)
         labels.extend(new)
 
+    if add_prefix:
+        labels = [f"B-{lab}" for lab in labels] + [f"I-{lab}" for lab in labels]
     labels = ["O"] + labels
     for lab in labels:
         if "name" in lab and "reference" in lab:
             labels.remove(lab)
+
     return {lab: idx for idx, lab in enumerate(labels)}
 
 
@@ -298,6 +302,8 @@ def convert_iob_tags_to_conll(annos: str | Path, output_file: str | Path, tokeni
     words = [tex[start:end] for start, end in word_spans]
     label2id = create_multiclass_labels(definition=True, theorem=True, proof=True, example=True)
     lines = []
+    conll_tags = []
+    index = 0
     for word, word_tags in zip(words, word_level_tags):
         if len(word.strip()) == 0:
             continue
@@ -307,6 +313,16 @@ def convert_iob_tags_to_conll(annos: str | Path, output_file: str | Path, tokeni
             word_tags = [t.replace("I-", "").replace("B-", "") for t in word_tags]
             filtered_tags = sorted([t for t in word_tags if t in label2id])
             tag = "-".join(filtered_tags)
+
+            # If we're at the beginning of a new tag, use 'B-'
+            if index == 0 or tag not in conll_tags[index - 1]:
+                tag = f"B-{tag}"
+            else:
+                tag = f"I-{tag}"
+
+        conll_tags.append(tag)
+        index += 1
+
         line = f"{word}\t{tag}"
         lines.append(line)
     conll = "\n".join(lines)
