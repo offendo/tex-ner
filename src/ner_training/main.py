@@ -108,7 +108,7 @@ def load_model(
     pretrained_model_name: str | Path,
     label2id: dict[str, int],
     debug: bool,
-    crf: bool,
+    crf: str | None,
     context_len: int,
     overlap_len: int = 512,
     dropout: float = 0.0,
@@ -118,9 +118,8 @@ def load_model(
     freeze_crf: bool = False,
     stacked: bool = False,
     crf_loss_reduction: str = "token_mean",
-    add_second_max_to_o: Optional[bool] = None,
-    use_crf_cost_function: bool = False,
     use_input_ids: bool = False,
+    max_segment_length: int = 32,
 ):
     id2label = {v: k for k, v in label2id.items()}
 
@@ -148,8 +147,6 @@ def load_model(
             debug=debug,
             crf=crf,
             crf_loss_reduction=crf_loss_reduction,
-            add_second_max_to_o=add_second_max_to_o,
-            use_crf_cost_function=use_crf_cost_function,
         )
         logging.info(f"Loaded BertWithCRF model with base of {pretrained_model_name}")
 
@@ -234,11 +231,11 @@ def make_compute_metrics(label2id):
 @click.argument("command", type=click.Choice(["train", "test", "tune", "predict"]), required=True)
 @click.option("--model", type=str)
 @click.option("--crf", is_flag=True)
+@click.option("--semicrf", is_flag=True)
 @click.option("--context_len", default=512, type=int)
 @click.option("--model_overlap_len", default=512, type=int)
 @click.option("--stacked", is_flag=True)
 @click.option("--crf_loss_reduction", type=click.Choice(["mean", "sum", "token_mean"]), default="token_mean")
-@click.option("--add_second_max_to_o", is_flag=True)
 @click.option("--checkpoint", type=click.Path(exists=True, resolve_path=True), default=None)
 @click.option("--randomize_last_layer", is_flag=True)
 @click.option("--freeze_base", is_flag=True)
@@ -246,13 +243,11 @@ def make_compute_metrics(label2id):
 @click.option("--freeze_crf", is_flag=True)
 @click.option("--debug", is_flag=True)
 @click.option("--average_checkpoints", is_flag=True)
-@click.option("--use_crf_cost_function", is_flag=True)
 @click.option("--use_input_ids", is_flag=True)
 # Data Processing
 @click.option("--data_dir", type=click.Path(exists=True, file_okay=False, resolve_path=True))
 @click.option("--output_dir", type=click.Path(exists=True, writable=True, file_okay=False, resolve_path=True))
 @click.option("--output_name", type=str, required=False, default="")
-@click.option("--remove_nested", is_flag=True)
 @click.option("--examples_as_theorems", is_flag=True)
 @click.option("--train_only_tags", "-n", type=click.Choice(["name", "reference"]), default=None, multiple=True)
 @click.option("--k_fold", type=int, default=1)
@@ -290,26 +285,13 @@ def cli(command: str, *args, **kwargs):
         predict(*args, **kwargs)
 
 
-# To do kfold training, we need to:
-# data <-- load kfold data
-# preds <-- empty dictionary
-# For each fold in range(fold):
-#   base_model <-- load base model
-#   base_model <-- train model on data[fold]
-#   preds += <-- generate predictions on val data
-# stacked_model <-- load stacked model
-# stacked_model <-- train model on preds
-# final_preds <-- generate predictions on val + test data
-
-
 def train(
     model: str,
     crf: bool,
+    semicrf: bool,
     stacked: bool,
     crf_loss_reduction: str,
-    add_second_max_to_o: bool,
     average_checkpoints: bool,
-    use_crf_cost_function: bool,
     use_input_ids: bool,
     definition: bool,
     theorem: bool,
@@ -341,7 +323,6 @@ def train(
     examples_as_theorems: bool,
     train_only_tags: list[str] | None,
     checkpoint: Path | None,
-    remove_nested: bool,
     freeze_base_after_steps: int | None,
     *args,
     **kwargs,
@@ -350,7 +331,7 @@ def train(
     logging.info(f"Label map: {label2id}")
     ner_model = load_model(
         model,
-        crf=crf,
+        crf="crf" if crf else "semicrf" if semicrf else None,
         context_len=context_len,
         overlap_len=model_overlap_len,
         label2id=label2id,
@@ -362,8 +343,6 @@ def train(
         freeze_crf=freeze_crf,
         stacked=stacked,
         crf_loss_reduction=crf_loss_reduction,
-        add_second_max_to_o=add_second_max_to_o,
-        use_crf_cost_function=use_crf_cost_function,
         use_input_ids=use_input_ids,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
@@ -480,7 +459,7 @@ def train(
 def test(
     model: str,
     crf: bool,
-    add_second_max_to_o: bool,
+    semicrf: bool,
     use_input_ids: bool,
     checkpoint: Path | None,
     definition: bool,
@@ -502,7 +481,6 @@ def test(
     examples_as_theorems: bool,
     train_only_tags: list[str],
     stacked: bool,
-    remove_nested: bool,
     predict_on_train: bool,
     *args,
     **kwargs,
@@ -521,7 +499,6 @@ def test(
         checkpoint=checkpoint,
         dropout=0.0,
         stacked=stacked,
-        add_second_max_to_o=add_second_max_to_o,
         use_input_ids=use_input_ids,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
@@ -596,6 +573,7 @@ def test(
 def tune(
     model: str,
     crf: bool,
+    semicrf: bool,
     definition: bool,
     theorem: bool,
     proof: bool,
@@ -614,8 +592,6 @@ def tune(
     train_only_tags: list[str] | None,
     stacked: bool,
     crf_loss_reduction: str,
-    add_second_max_to_o: bool,
-    remove_nested: bool,
     model_overlap_len: int,
     data_overlap_len: int,
     *args,
@@ -680,7 +656,6 @@ def tune(
             crf=crf,
             context_len=context_len,
             stacked=stacked,
-            add_second_max_to_o=add_second_max_to_o,
         ),
         data_collator=collator,
     )
@@ -705,6 +680,7 @@ def tune(
 def predict(
     model: str,
     crf: bool,
+    semicrf: bool,
     checkpoint: Path | None,
     definition: bool,
     theorem: bool,
@@ -718,8 +694,6 @@ def predict(
     output_dir: Path,
     batch_size: int,
     debug: bool,
-    add_second_max_to_o: bool,
-    remove_nested: bool,
     use_input_ids: bool,
     *args,
     **kwargs,
@@ -730,14 +704,13 @@ def predict(
     id2label = {v: k for k, v in label2id.items()}
     ner_model = load_model(
         model,
-        crf=crf,
+        crf="crf" if crf else "semicrf" if semicrf else None,
         context_len=context_len,
         overlap_len=model_overlap_len,
         label2id=label2id,
         debug=debug,
         checkpoint=checkpoint,
         dropout=0.0,
-        add_second_max_to_o=add_second_max_to_o,
         use_input_ids=use_input_ids,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)

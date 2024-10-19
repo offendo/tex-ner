@@ -7,12 +7,27 @@ from typing import Optional
 import torch
 import torch.nn as nn
 from more_itertools import windowed
-from transformers import AutoConfig, AutoModelForTokenClassification
+from transformers import AutoConfig, AutoModelForTokenClassification, PreTrainedModel, PretrainedConfig
 from transformers.modeling_outputs import TokenClassifierOutput
 from torch.nn.utils.rnn import pad_sequence
 
-from ner_training.crf import CRF
+from ner_training.crf import CRF, SemiCRF
 from ner_training.utils import PAD_TOKEN_ID
+
+
+@dataclass
+class BertWithCRFConfig:
+    model_name_or_path: str | Path
+    label2id: dict[str, int]
+    id2label: dict[int, str]
+
+    # Defaults
+    context_len: int = 512
+    overlap_len: int = 512
+    dropout: float = 0.0
+    debug: bool = False
+    crf_loss_reduction: str = "token_mean"
+    crf_segment_length: int = 1
 
 
 @dataclass
@@ -20,43 +35,39 @@ class CRFOutput(TokenClassifierOutput):
     predictions: torch.Tensor | None = None
 
 
-class BertWithCRF(nn.Module):
-    def __init__(
-        self,
-        pretrained_model_name: str | Path,
-        label2id: dict[str, int],
-        id2label: dict[int, str],
-        context_len: int = 512,
-        overlap_len: int = 512,
-        dropout: float = 0.0,
-        debug: bool = False,
-        crf: bool = False,
-        crf_loss_reduction: str = "token_mean",
-        add_second_max_to_o: Optional[bool] = None,
-        use_crf_cost_function: bool = False,
-    ):
-        super().__init__()
-        if debug:
-            config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=len(label2id))
-            config.hidden_size = 128
-            config.intermediate_size = 256
-            config.num_hidden_layers = 2
-            config.num_attention_heads = 2
-            self.bert = AutoModelForTokenClassification.from_config(config)
+class BertWithCRF(PreTrainedModel):
+    def __init__(self, config: BertWithCRFConfig):
+        bert_config = AutoConfig.from_pretrained(config.model_name_or_path, num_labels=len(config.label2id))
+        super().__init__(bert_config)
+        self.num_labels = len(config.label2id)
+        self.crf_loss_reduction = config.crf_loss_reduction
+        self.ctx = config.context_len
+        self.overlap = config.overlap_len
+        if config.debug:
+            bert_config.hidden_size = 128
+            bert_config.intermediate_size = 256
+            bert_config.num_hidden_layers = 2
+            bert_config.num_attention_heads = 2
+            self.bert = AutoModelForTokenClassification.from_config(bert_config)
         else:
             self.bert = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name,
-                num_labels=len(label2id),
-                label2id=label2id,
-                id2label=id2label,
-                hidden_dropout_prob=dropout,
+                config.model_name_or_path,
+                num_labels=len(config.label2id),
+                label2id=config.label2id,
+                id2label=config.id2label,
+                hidden_dropout_prob=config.dropout,
             )
-        self.add_second_max_to_o = add_second_max_to_o
-        self.crf_loss_reduction = crf_loss_reduction
-        self.crf = CRF(len(label2id), batch_first=True, use_cost_function=use_crf_cost_function) if crf else None
-        self.num_labels = len(label2id)
-        self.ctx = 512  # this is only used for BERT context window, so just keep it static
-        self.overlap = overlap_len
+        if config.crf_segment_length == 1:
+            self.crf = CRF(self.num_labels, batch_first=True)
+        elif config.crf_segment_length > 1:
+            self.crf = SemiCRF(
+                self.num_labels,
+                batch_first=True,
+                padding_idx=-100,
+                max_segment_length=config.crf_segment_length,
+            )
+        else:
+            self.crf = None
 
     def no_crf_forward(
         self,
@@ -120,13 +131,10 @@ class BertWithCRF(nn.Module):
 
         loss = None
         if labels is not None:
-            if self.add_second_max_to_o:
-                values, indices = torch.topk(outputs.logits[:, :, 1:], dim=-1, k=2)
-                outputs.logits[:, :, 0] += values[:, :, 1]
             is_pad = labels == -100
             crf_out = self.crf.forward(
                 logits,
-                labels.masked_fill(is_pad, 0),
+                tags=labels.masked_fill(is_pad, 0),
                 mask=attention_mask.bool(),
                 reduction=self.crf_loss_reduction,
             )
@@ -202,8 +210,9 @@ class StackedBertWithCRF(nn.Module):
         overlap_len: int = 512,
         dropout: float = 0.0,
         debug: bool = False,
-        crf: bool = False,
         use_input_ids: bool = False,
+        crf_loss_reduction: str = "token_mean",
+        crf_segment_length: int = 1,
     ):
         super().__init__()
         self.base = BertWithCRF(
@@ -213,8 +222,9 @@ class StackedBertWithCRF(nn.Module):
             context_len=context_len,
             overlap_len=overlap_len,
             dropout=dropout,
-            crf=crf,
             debug=debug,
+            crf_loss_reduction=crf_loss_reduction,
+            crf_segment_length=crf_segment_length,
         )
         self.tag_pad_token = 0
         self.use_input_ids = use_input_ids

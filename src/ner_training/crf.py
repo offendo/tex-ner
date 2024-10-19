@@ -14,8 +14,9 @@ class SemiCRF(nn.Module):
         num_tags: int,
         batch_first: bool = False,
         padding_idx: int = -100,
-        max_segment_length: int = 32,
+        max_segment_length: int = 1,
     ) -> None:
+        # torch.autograd.set_detect_anomaly(True)
         if num_tags <= 0:
             raise ValueError(f"invalid number of tags: {num_tags}")
         super().__init__()
@@ -238,19 +239,18 @@ class SemiCRF(nn.Module):
         n_seg = int(lens.size(0))
 
         max_idx = torch.minimum(mask.long().sum(dim=0), torch.tensor(seq_length - 1))
-        start_idx = torch.zeros(batch_size, dtype=torch.int32, device=emissions.device)
-        end_idx = torch.minimum(start_idx + lens[0], max_idx)
+        # start_idx = torch.zeros(batch_size, dtype=torch.int32, device=emissions.device)
+        # end_idx = torch.minimum(start_idx + lens[0], max_idx)
 
         # Start transition score and first emission
         # shape: (batch_size,)
         score = self.start_transitions[tags[0]]
-        seg_emissions = self.compute_segment_vector(emissions, start_idx, end_idx - 1)
+        seg_emissions = self.compute_segment_vector(emissions, 0, lens[0] - 1)
         score += seg_emissions[torch.arange(batch_size), tags[0]]
-
-        start_idx += lens[0]
 
         for seg in range(1, n_seg):
             seg_length = lens[seg]
+            start_idx = torch.minimum(torch.sum(lens[:seg], dim=0), max_idx)
             end_idx = start_idx + seg_length
             # 1. Compute the emission probability of the current segment (this can be anything, right now it's the sum of first and last element)
             # shape: (batch_size, num_tags)
@@ -269,7 +269,7 @@ class SemiCRF(nn.Module):
             score += self.transitions[start_tag, end_tag] * mask[start_idx, torch.arange(batch_size)]
 
             # Update the start index to the next segment
-            start_idx = torch.minimum(start_idx + seg_length, max_idx)
+            # start_idx = torch.minimum(start_idx + seg_length, max_idx)
 
         # End transition score
         # shape: (batch_size,)
@@ -767,7 +767,7 @@ if __name__ == "__main__":
     T = len(labels)
 
     # Model
-    scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=5)
+    scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=1)
     crf = CRF(num_tags=T, batch_first=True)
 
     # Make the weights the same so it's easy to compare values
@@ -779,8 +779,8 @@ if __name__ == "__main__":
     emissions = torch.randn(N, B, T, dtype=torch.float32)
     tags = torch.randint(0, T, (N, B))
     # tags = torch.tensor([[0, 1, 0, 1, 0], [0, 1, 0, 1, 0], [1, 0, 1, 0, 1]]).T
-    ic(tags)
-    ic(emissions)
+    # ic(tags)
+    # ic(emissions)
     # tags[N - 3 :, 1] = -100
     mask = (tags != -100).long()
 
