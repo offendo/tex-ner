@@ -8,6 +8,7 @@ import random
 from pathlib import Path
 from pprint import pformat
 from typing import Callable, Iterable, Optional
+from dataclasses import dataclass, field
 
 import click
 import evaluate
@@ -39,10 +40,11 @@ from transformers import (
 )
 from transformers.modeling_outputs import TokenClassifierOutput
 
-from ner_training.utils import create_name_or_ref_tags, PAD_TOKEN_ID, convert_label_to_idx
+from ner_training.config import Config
+from ner_training.utils import create_name_or_ref_tags, PAD_TOKEN_ID, convert_label_to_idx, create_multiclass_labels
 
 
-def load_mmd(
+def load_mmd_file_for_prediction(
     path: str | Path,
     tokenizer: PreTrainedTokenizer,
     context_len: int = 512,
@@ -60,20 +62,20 @@ def load_mmd(
     return all_examples
 
 
-def load_mmd_data(
+def load_mmd_data_for_prediction(
     data_dir: str | Path,
     tokenizer: PreTrainedTokenizer,
     context_len: int,
 ):
     examples = []
     for mmd in os.listdir(data_dir):
-        file_exs = load_mmd(Path(data_dir, mmd), tokenizer=tokenizer, context_len=context_len)
+        file_exs = load_mmd_file_for_prediction(Path(data_dir, mmd), tokenizer=tokenizer, context_len=context_len)
         examples.extend(file_exs)
 
     return Dataset.from_list(examples)
 
 
-def load_predictions_file(
+def load_predictions_file_for_name_ref_model(
     path: str | Path,
     tokenizer: PreTrainedTokenizer,
     context_len: int,
@@ -91,21 +93,23 @@ def load_predictions_file(
     return examples
 
 
-def load_prediction_data(
+def load_predictions_data_for_name_ref_model(
     data_dir: str | Path,
     tokenizer: PreTrainedTokenizer,
     context_len: int,
 ):
     examples = []
     for preds in tqdm(os.listdir(data_dir)):
-        file_exs = load_predictions_file(Path(data_dir, preds), tokenizer=tokenizer, context_len=context_len)
+        file_exs = load_predictions_file_for_name_ref_model(
+            Path(data_dir, preds), tokenizer=tokenizer, context_len=context_len
+        )
         examples.extend(file_exs)
 
     dataset = Dataset.from_list(examples)
     return dataset.filter(lambda x: len(x["input_ids"]) > 25)
 
 
-def load_file_name_or_ref(
+def load_file_for_name_ref_model(
     path: str | Path,
     label2id: dict[str, int],
     tokenizer: PreTrainedTokenizer,
@@ -147,8 +151,6 @@ def load_file_name_or_ref(
         n_tokens = len(tokens["input_ids"])  # type:ignore
         assert n_labels == n_tokens, f"Mismatch in input/output lengths: {n_labels} == {n_tokens}"
 
-        example = []
-
         for idx in range(math.ceil(n_tokens / context_len)):
             labels = tokens.labels[idx * context_len : (idx + 1) * context_len]
             input_ids = tokens.input_ids[idx * context_len : (idx + 1) * context_len]
@@ -169,7 +171,7 @@ def load_file(
 ):
     if train_only_tags is not None and len(train_only_tags) > 0:
         logging.debug("Loading name/ref data only.")
-        return load_file_name_or_ref(
+        return load_file_for_name_ref_model(
             path=path,
             label2id=label2id,
             tokenizer=tokenizer,
@@ -306,7 +308,7 @@ def load_data(
     )
 
 
-def load_kfold_data(
+def load_data_with_kfold(
     data_dir: str | Path,
     tokenizer: PreTrainedTokenizer,
     label2id: dict[str, int],
@@ -391,7 +393,7 @@ def load_kfold_data(
     return DatasetDict(folds)
 
 
-def load_stacked_file(
+def load_file_for_stacked_model(
     path: str | Path,
     tokenizer: PreTrainedTokenizer,
     label2id: dict[str, int],
@@ -411,7 +413,7 @@ def load_stacked_file(
     return examples
 
 
-def load_stacked_data(
+def load_data_for_stacked_model(
     data_dir: str | Path,
     tokenizer: PreTrainedTokenizer,
     label2id: dict[str, int],
@@ -424,20 +426,20 @@ def load_stacked_data(
     assert test_dir.exists(), f"Expected {test_dir} to exist."
     train = []
     for path in os.listdir(train_dir):
-        examples = load_stacked_file(path=train_dir / path, tokenizer=tokenizer, label2id=label2id)
+        examples = load_file_for_stacked_model(path=train_dir / path, tokenizer=tokenizer, label2id=label2id)
         train.extend(examples)
     logging.info(f"Loaded train data ({len(train)} examples from {len(os.listdir(train_dir))} files).")
 
     val = []
     if val_dir.exists():
         for path in os.listdir(val_dir):
-            examples = load_stacked_file(path=val_dir / path, tokenizer=tokenizer, label2id=label2id)
+            examples = load_file_for_stacked_model(path=val_dir / path, tokenizer=tokenizer, label2id=label2id)
             val.extend(examples)
         logging.info(f"Loaded val data ({len(val)} examples from {len(os.listdir(val_dir))} files).")
 
     test = []
     for path in os.listdir(test_dir):
-        examples = load_stacked_file(path=test_dir / path, tokenizer=tokenizer, label2id=label2id)
+        examples = load_file_for_stacked_model(path=test_dir / path, tokenizer=tokenizer, label2id=label2id)
         test.extend(examples)
     logging.info(f"Loaded test data ({len(test)} examples from {len(os.listdir(test_dir))} files).")
 
@@ -448,3 +450,56 @@ def load_stacked_data(
             "test": Dataset.from_list(test),
         }
     )
+
+
+def load_dataset(config: Config):
+    # Doing predictions on MMD files
+    tokenizer = AutoTokenizer.from_pretrained(config.model_name_or_path)
+    if config.run_predict:
+        if config.name or config.reference:
+            data = load_predictions_data_for_name_ref_model(
+                config.data_dir, tokenizer=tokenizer, context_len=config.data_context_len
+            )
+        else:
+            data = load_mmd_data_for_prediction(
+                config.data_dir, tokenizer=tokenizer, context_len=config.data_context_len
+            )
+        return data
+
+    # Doing training, testing, or tuning
+    label2id = create_multiclass_labels(
+        definition=config.definition,
+        theorem=config.theorem,
+        proof=config.proof,
+        example=config.example,
+        name=config.name,
+        reference=config.reference,
+    )
+    if config.k_fold > 1 and config.fold > 0:
+        fold_data = load_data_with_kfold(
+            config.data_dir,
+            tokenizer,
+            k_fold=config.k_fold,
+            context_len=config.data_context_len,
+            label2id=label2id,
+            examples_as_theorems=config.examples_as_theorems,
+            train_only_tags=config.train_only_tags,
+        )
+        data = fold_data[f"fold{config.fold}"]
+    elif config.stacked:
+        data = load_data_for_stacked_model(
+            config.data_dir,
+            tokenizer,
+            label2id=label2id,
+        )
+    else:
+        data = load_data(
+            config.data_dir,
+            tokenizer,
+            context_len=config.data_context_len,
+            overlap_len=config.data_overlap_len,
+            label2id=label2id,
+            examples_as_theorems=config.examples_as_theorems,
+            train_only_tags=config.train_only_tags,
+        )
+    return data

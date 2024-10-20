@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from pathlib import Path
 from typing import Optional
@@ -12,22 +12,8 @@ from transformers.modeling_outputs import TokenClassifierOutput
 from torch.nn.utils.rnn import pad_sequence
 
 from ner_training.crf import CRF, SemiCRF
-from ner_training.utils import PAD_TOKEN_ID
-
-
-@dataclass
-class BertWithCRFConfig:
-    model_name_or_path: str | Path
-    label2id: dict[str, int]
-    id2label: dict[int, str]
-
-    # Defaults
-    context_len: int = 512
-    overlap_len: int = 512
-    dropout: float = 0.0
-    debug: bool = False
-    crf_loss_reduction: str = "token_mean"
-    crf_segment_length: int = 1
+from ner_training.utils import PAD_TOKEN_ID, create_multiclass_labels
+from ner_training.config import Config
 
 
 @dataclass
@@ -36,10 +22,19 @@ class CRFOutput(TokenClassifierOutput):
 
 
 class BertWithCRF(PreTrainedModel):
-    def __init__(self, config: BertWithCRFConfig):
-        bert_config = AutoConfig.from_pretrained(config.model_name_or_path, num_labels=len(config.label2id))
+    def __init__(self, config: Config):
+        label2id = create_multiclass_labels(
+            definition=config.definition,
+            theorem=config.theorem,
+            proof=config.proof,
+            example=config.example,
+            name=config.name,
+            reference=config.reference,
+        )
+        bert_config = AutoConfig.from_pretrained(config.model_name_or_path, num_labels=config.num_labels)
         super().__init__(bert_config)
-        self.num_labels = len(config.label2id)
+        id2label = {v: k for k, v in label2id.items()}
+        self.num_labels = config.num_labels
         self.crf_loss_reduction = config.crf_loss_reduction
         self.ctx = config.context_len
         self.overlap = config.overlap_len
@@ -52,9 +47,9 @@ class BertWithCRF(PreTrainedModel):
         else:
             self.bert = AutoModelForTokenClassification.from_pretrained(
                 config.model_name_or_path,
-                num_labels=len(config.label2id),
-                label2id=config.label2id,
-                id2label=config.id2label,
+                num_labels=config.num_labels,
+                label2id=label2id,
+                id2label=id2label,
                 hidden_dropout_prob=config.dropout,
             )
         if config.crf_segment_length == 1:
@@ -129,7 +124,7 @@ class BertWithCRF(PreTrainedModel):
         # Average them out
         logits = logits / counts.view(1, -1, 1)
 
-        loss = None
+        loss = 0.0
         if labels is not None:
             is_pad = labels == -100
             crf_out = self.crf.forward(
@@ -201,59 +196,29 @@ class BertWithCRF(PreTrainedModel):
 
 
 class StackedBertWithCRF(nn.Module):
-    def __init__(
-        self,
-        pretrained_model_name: str | Path,
-        label2id: dict[str, int],
-        id2label: dict[int, str],
-        context_len: int = 512,
-        overlap_len: int = 512,
-        dropout: float = 0.0,
-        debug: bool = False,
-        use_input_ids: bool = False,
-        crf_loss_reduction: str = "token_mean",
-        crf_segment_length: int = 1,
-    ):
+    def __init__(self, config: BertWithCRFConfig):
         super().__init__()
-        self.base = BertWithCRF(
-            pretrained_model_name,
-            label2id=label2id,
-            id2label=id2label,
-            context_len=context_len,
-            overlap_len=overlap_len,
-            dropout=dropout,
-            debug=debug,
-            crf_loss_reduction=crf_loss_reduction,
-            crf_segment_length=crf_segment_length,
-        )
+        self.base = BertWithCRF(config)
         self.tag_pad_token = 0
-        self.use_input_ids = use_input_ids
+        self.use_input_ids = config.use_input_ids
+        self.num_labels = len(config.label2id)
+        self.ctx = config.context_len
 
         # Freeze the base model
         for param in self.base.parameters():
             param.requires_grad = False
 
-        if debug:
-            config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=len(label2id))
-            config.vocab_size = len(label2id) + 1
-            config.hidden_size = 128
-            config.intermediate_size = 256
-            config.num_hidden_layers = 2
-            config.num_attention_heads = 2
-            config.pad_token_id = self.tag_pad_token
-            config.bos_token_id = None
-            config.eos_token_id = None
-            self.tagger = AutoModelForTokenClassification.from_config(config)
-        else:
-            config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=len(label2id))
-            config.vocab_size = len(label2id) + 1
-            config.pad_token_id = self.tag_pad_token
-            config.bos_token_id = None
-            config.eos_token_id = None
-            self.tagger = AutoModelForTokenClassification.from_config(config)
-
-        self.num_labels = len(label2id)
-        self.ctx = 512  # this is only used for BERT context window, so just keep it static
+        bert_config = AutoConfig.from_pretrained(config.model_name_or_path, num_labels=self.num_labels)
+        bert_config.vocab_size = self.num_labels + 1
+        bert_config.pad_token_id = self.tag_pad_token
+        bert_config.bos_token_id = None
+        bert_config.eos_token_id = None
+        if config.debug:
+            bert_config.hidden_size = 128
+            bert_config.intermediate_size = 256
+            bert_config.num_hidden_layers = 2
+            bert_config.num_attention_heads = 2
+        self.tagger = AutoModelForTokenClassification.from_config(bert_config)
 
     def forward(
         self,
@@ -269,20 +234,6 @@ class StackedBertWithCRF(nn.Module):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
-        # bert_output = self.base.forward(
-        #     input_ids=input_ids,
-        #     attention_mask=attention_mask,
-        #     token_type_ids=token_type_ids,
-        #     position_ids=position_ids,
-        #     head_mask=head_mask,
-        #     labels=labels,
-        #     inputs_embeds=inputs_embeds,
-        #     output_attentions=output_attentions,
-        #     output_hidden_states=output_hidden_states,
-        #     return_dict=return_dict,
-        #     return_predictions=True,
-        # )
-
         tag_embeddings = self.tagger.roberta.embeddings(
             input_ids=tag_ids,
             position_ids=position_ids,
@@ -307,11 +258,6 @@ class StackedBertWithCRF(nn.Module):
             input_embeds = encodings.hidden_states[-1] + tag_embeddings
         else:
             input_embeds = tag_embeddings
-
-        # Shift things up by 1 so we can use 0 for padding
-        # bert_preds = (
-        #     (bert_output.predictions + 1).to(input_ids.device).masked_fill(~attention_mask.bool(), self.tag_pad_token)
-        # )
 
         tagger_output = self.tagger.forward(
             token_type_ids=token_type_ids,
