@@ -75,7 +75,7 @@ class SemiCRF(nn.Module):
         """
         L, B, T = emissions.size()
         one_to_bs = torch.arange(B, device=tags.device)
-        return (emissions[start_idx, one_to_bs] + emissions[end_idx, one_to_bs]) / 2
+        # return (emissions[start_idx, one_to_bs] + emissions[end_idx, one_to_bs]) / 2
 
         total = torch.zeros(B, T, dtype=torch.float)
         for b in range(B):
@@ -289,8 +289,8 @@ class SemiCRF(nn.Module):
             # 2. Then add in the transition probability for moving between the previous and current segment
             # Transition score to next tag, only added if next timestep is valid (mask == 1)
             # shape: (batch_size,)
-            seg_emissions = emissions[:, bs, tags[j]] * (seg_nums == seg_idx) * mask[j]
-            score[j] = seg_emissions.sum(dim=0) + self.transitions[tags[j - 1], tags[j]] * mask[j]
+            seg_emissions = emissions[:, bs, tags[j]] * (seg_nums == seg_idx)
+            score[j] = (seg_emissions.sum(dim=0) + self.transitions[tags[j - 1], tags[j]]) * mask[j]
 
         # Only count the idxs where the segment starts, since otherwise we'd double count
         score *= seg_starts
@@ -392,10 +392,10 @@ class SemiCRF(nn.Module):
         # (batch_size, num_tags) where for each batch, the j-th column stores
         # the score that the first timestep has tag j
         # shape: (batch_size, num_tags)
+        # (batch_size, num_tags)
         # alpha[i, :, t] = score of segment ending at index i with tag t
         alpha = torch.zeros(seq_length, batch_size, self.num_tags, dtype=emissions.dtype, device=emissions.device)
 
-        # (batch_size, num_tags)
         alpha[0, :, :] = self.transitions[-2, :3] + emissions[0]
 
         segment_score = torch.full(
@@ -405,7 +405,7 @@ class SemiCRF(nn.Module):
             device=emissions.device,
         )
         for j in range(1, seq_length):
-            for i in range(self.max_segment_length):
+            for i in range(min(self.max_segment_length, j)):
                 if i > j:
                     break
 
@@ -430,7 +430,7 @@ class SemiCRF(nn.Module):
 
         # End transition score
         # shape: (batch_size, num_tags)
-        alpha[-1, :, :] += self.transitions[-1, :3].unsqueeze(0)
+        alpha[-1, :, :] += self.transitions[-1, :3]
 
         # Sum (log-sum-exp) over all possible tags
         # shape: (batch_size,)
@@ -465,13 +465,13 @@ class SemiCRF(nn.Module):
 
         for j in range(1, seq_length):
             segment_score = torch.zeros(
-                min(self.max_segment_length, j + 1),
+                min(self.max_segment_length, j),
                 batch_size,
                 self.num_tags,
                 dtype=emissions.dtype,
                 device=emissions.device,
             )
-            for i in range(self.max_segment_length):
+            for i in range(min(self.max_segment_length, j)):
                 if i > j:
                     break
 
@@ -946,14 +946,14 @@ if __name__ == "__main__":
 
     # scalene_profiler.start()
     if sys.argv[-1] == "scrf":
-        # with timer("scrf score"):
-        #     score = scrf._compute_score(emissions, tags, mask.bool())
+        with timer("scrf score"):
+            score = scrf._compute_score(emissions, tags, mask.bool())
         with timer("scrf norm"):
             norm = scrf._compute_normalizer(emissions, mask.bool())
         ic(norm)
     if sys.argv[-1] == "scrf2":
-        # with timer("scrf score2"):
-        #     score2 = scrf._compute_score2(emissions, tags, mask.bool())
+        with timer("scrf score2"):
+            score2 = scrf._compute_score2(emissions, tags, mask.bool())
         # ic(score2)
         with timer("scrf norm2"):
             norm = scrf._compute_normalizer2(emissions, mask.bool())
@@ -961,8 +961,8 @@ if __name__ == "__main__":
         # best_tags = scrf._viterbi_decode(emissions, mask.bool())
 
     if sys.argv[-1] == "crf":
-        # with timer("crf score"):
-        #     score = crf._compute_score(emissions, tags * mask, mask.bool())
+        with timer("crf score"):
+            score = crf._compute_score(emissions, tags * mask, mask.bool())
         # ic(score)
         with timer("crf norm"):
             norm = crf._compute_normalizer(emissions, mask.bool())
