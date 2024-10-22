@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
+import random
+import sys
+import time
 from typing import List, Optional
 
-import random
 import torch
 import torch.nn as nn
 from icecream import ic
-import sys
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def timer(name):
+    tik = time.time()
+    yield
+    tok = time.time()
+    print(f"Time taken for {name}: {tok - tik}")
 
 
 class SemiCRF(nn.Module):
@@ -25,7 +36,7 @@ class SemiCRF(nn.Module):
         self.batch_first = batch_first
         self.start_transitions = nn.Parameter(torch.empty(num_tags))
         self.end_transitions = nn.Parameter(torch.empty(num_tags))
-        self.transitions = nn.Parameter(torch.empty(num_tags, num_tags))
+        self.transitions = nn.Parameter(torch.empty(num_tags + 2, num_tags + 2))
         self.max_segment_length = max_segment_length
 
         self.reset_parameters()
@@ -39,13 +50,13 @@ class SemiCRF(nn.Module):
         nn.init.uniform_(self.start_transitions, -0.1, 0.1)
         nn.init.uniform_(self.end_transitions, -0.1, 0.1)
         nn.init.uniform_(self.transitions, -0.1, 0.1)
+        self.transitions.data[-2, :3] = self.start_transitions.data
+        self.transitions.data[-1, :3] = self.end_transitions.data
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(num_tags={self.num_tags})"
 
-    def compute_segment_vector(
-        self, emissions: torch.Tensor, start_idx: torch.Tensor | int, end_idx: torch.Tensor | int
-    ):
+    def compute_segment_vector(self, emissions: torch.Tensor, start_idx: torch.Tensor, end_idx: torch.Tensor):
         """Computes a feature vector for a sequence (x_i, ..., x_j).
 
         Parameters
@@ -62,8 +73,16 @@ class SemiCRF(nn.Module):
         torch.Tensor :
             Tensor of shape [B, D]
         """
-        B = emissions.size(1)
-        return (emissions[start_idx, torch.arange(B)] + emissions[end_idx, torch.arange(B)]) / 2
+        L, B, T = emissions.size()
+        one_to_bs = torch.arange(B, device=tags.device)
+        return (emissions[start_idx, one_to_bs] + emissions[end_idx, one_to_bs]) / 2
+
+        total = torch.zeros(B, T, dtype=torch.float)
+        for b in range(B):
+            start = start_idx[b]
+            end = end_idx[b] + 1
+            total[b] += emissions[start:end, b, :].sum(dim=0)
+        return total
 
     def forward(
         self,
@@ -78,10 +97,10 @@ class SemiCRF(nn.Module):
             emissions (`~torch.Tensor`): Emission score tensor of size
                 ``(seq_length, batch_size, num_tags)`` if ``batch_first`` is ``False``,
                 ``(batch_size, seq_length, num_tags)`` otherwise.
-            tags (`~torch.LongTensor`): Sequence of tags tensor of size
+            tags (`~torch.Tensor`): Sequence of tags tensor of size
                 ``(seq_length, batch_size)`` if ``batch_first`` is ``False``,
                 ``(batch_size, seq_length)`` otherwise.
-            mask (`~torch.ByteTensor`): Mask tensor of size ``(seq_length, batch_size)``
+            mask (`~torch.Tensor`): Mask tensor of size ``(seq_length, batch_size)``
                 if ``batch_first`` is ``False``, ``(batch_size, seq_length)`` otherwise.
             reduction: Specifies  the reduction to apply to the output:
                 ``none|sum|mean|token_mean``. ``none``: no reduction will be applied.
@@ -126,7 +145,7 @@ class SemiCRF(nn.Module):
             emissions (`~torch.Tensor`): Emission score tensor of size
                 ``(seq_length, batch_size, num_tags)`` if ``batch_first`` is ``False``,
                 ``(batch_size, seq_length, num_tags)`` otherwise.
-            mask (`~torch.ByteTensor`): Mask tensor of size ``(seq_length, batch_size)``
+            mask (`~torch.Tensor`): Mask tensor of size ``(seq_length, batch_size)``
                 if ``batch_first`` is ``False``, ``(batch_size, seq_length)`` otherwise.
 
         Returns:
@@ -181,7 +200,8 @@ class SemiCRF(nn.Module):
             # Ignore the mask
             row = row[row != self.padding_idx]
             # Identify changes in labels
-            changes = torch.cat([torch.tensor([True]), row[1:] != row[:-1], torch.tensor([True])])
+            true = torch.tensor([True], device=tags.device, dtype=torch.bool)
+            changes = torch.cat([true, row[1:] != row[:-1], true])
             run_lengths = torch.diff(torch.where(changes)[0])
             run_values = row[torch.where(changes[:-1])[0]]
 
@@ -194,14 +214,16 @@ class SemiCRF(nn.Module):
                     length -= self.max_segment_length
                 if length > 0:
                     extended_runs.append(length)
-            run_lengths = torch.tensor(extended_runs)
+            run_lengths = torch.tensor(extended_runs, device=tags.device, dtype=torch.long)
             runs_list.append(run_lengths)
 
         # Find the maximum length of runs across all rows
         max_len = max(len(r) for r in runs_list)
 
         # Pad each run list with 1s (unit segments) to make them the same length
-        padded_runs = [torch.cat([r, torch.ones(max_len - len(r), dtype=torch.long)]) for r in runs_list]
+        padded_runs = [
+            torch.cat([r, torch.ones(max_len - len(r), device=tags.device, dtype=torch.long)]) for r in runs_list
+        ]
 
         # Stack the results into a tensor
         result = torch.stack(padded_runs)
@@ -210,6 +232,82 @@ class SemiCRF(nn.Module):
         if len(shape) == 1:
             return result.squeeze(0)
         return result.T
+
+    def _compute_score2(
+        self,
+        emissions: torch.Tensor,
+        tags: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        # emissions: (seq_length, batch_size, num_tags)
+        # tags: (seq_length, batch_size)
+        # mask: (seq_length, batch_size): 1 if good, 0 if bad
+        # lens: (n_segments, batch_size)
+        # seg_ids: (seq_length, batch_size) - 1 if tags[i] != tags[i-1], 0 otherwise
+        assert emissions.dim() == 3 and tags.dim() == 2
+        assert emissions.shape[:2] == tags.shape
+        assert emissions.size(2) == self.num_tags
+        assert mask.shape == tags.shape
+        assert mask[0].all()
+
+        # Mask out the tags to prevent trying to index -100
+        tags = tags * mask
+
+        seq_length, batch_size = tags.shape
+        mask = mask.float()
+
+        # Indicator vector for segment starts
+        seg_starts = torch.cat([torch.ones(1, batch_size, device=tags.device), tags[:-1] != tags[1:]], dim=0)
+
+        # Ensure the max segment length is identical
+        for b in range(batch_size):
+            run_length = 0
+            for i in range(seq_length):
+                if seg_starts[i, b] == 0 and run_length == self.max_segment_length:
+                    seg_starts[i, b] = 1
+                    run_length = 1
+                elif seg_starts[i, b] == 0:
+                    run_length += 1
+                else:  # seg_starts[i, b] == 1
+                    run_length = 1
+
+        seg_nums = torch.cumsum(seg_starts, dim=0, dtype=torch.long) - 1
+
+        # Score matrix
+        score = torch.zeros(seq_length, batch_size, device=emissions.device)
+
+        # Start transition score and first emission
+        # first segment index = 0
+        bs = torch.arange(batch_size)
+        seg_emissions = emissions[:, bs, tags[0]] * (seg_nums == 0)
+        score[0] += seg_emissions.sum(dim=0) + self.transitions[-2, tags[0]]
+
+        for j in range(1, seq_length):
+            seg_idx = seg_nums[j]
+            # 1. Compute the emission probability of the current segment (this can be anything, right now it's the sum of first and last element)
+            # shape: (batch_size, num_tags)
+            # 2. Then add in the transition probability for moving between the previous and current segment
+            # Transition score to next tag, only added if next timestep is valid (mask == 1)
+            # shape: (batch_size,)
+            seg_emissions = emissions[:, bs, tags[j]] * (seg_nums == seg_idx) * mask[j]
+            score[j] = seg_emissions.sum(dim=0) + self.transitions[tags[j - 1], tags[j]] * mask[j]
+
+        # Only count the idxs where the segment starts, since otherwise we'd double count
+        score *= seg_starts
+
+        # Now add the end transition score; note we do this after so we don't have to worry about
+        # adding the transition to the right index
+
+        # shape: (batch_size,)
+        seq_ends = mask.long().sum(dim=0) - 1
+
+        # shape: (batch_size,)
+        last_tags = tags[seq_ends, bs]
+
+        # shape: (batch_size,)
+        score[-1, :] += self.transitions[-1, last_tags]
+
+        return torch.sum(score, dim=0)
 
     def _compute_score(
         self,
@@ -239,14 +337,13 @@ class SemiCRF(nn.Module):
         n_seg = int(lens.size(0))
 
         max_idx = torch.minimum(mask.long().sum(dim=0), torch.tensor(seq_length - 1))
-        # start_idx = torch.zeros(batch_size, dtype=torch.int32, device=emissions.device)
-        # end_idx = torch.minimum(start_idx + lens[0], max_idx)
+        one_to_bs = torch.arange(batch_size, device=tags.device)
 
         # Start transition score and first emission
         # shape: (batch_size,)
         score = self.start_transitions[tags[0]]
-        seg_emissions = self.compute_segment_vector(emissions, 0, lens[0] - 1)
-        score += seg_emissions[torch.arange(batch_size), tags[0]]
+        seg_emissions = self.compute_segment_vector(emissions, torch.zeros_like(lens[0]), lens[0] - 1)
+        score += seg_emissions[one_to_bs, tags[0]]
 
         for seg in range(1, n_seg):
             seg_length = lens[seg]
@@ -258,28 +355,86 @@ class SemiCRF(nn.Module):
 
             # Emission score for next tag, only added if next timestep is valid (mask == 1)
             # shape: (batch_size,)
-            start_tag = tags[start_idx, torch.arange(batch_size)]
-            score += seg_emissions[torch.arange(batch_size), start_tag] * mask[start_idx, torch.arange(batch_size)]
+            start_tag = tags[start_idx, one_to_bs]
+            score += seg_emissions[one_to_bs, start_tag] * mask[start_idx, one_to_bs]
+            seg_score = seg_emissions[one_to_bs, start_tag] * mask[start_idx, one_to_bs] * (start_idx != max_idx)
 
             # 2. Now add in the transition probability for moving between the previous and current segment
             # Transition score to next tag, only added if next timestep is valid (mask == 1)
             # shape: (batch_size,)
-            start_tag = tags[start_idx - 1, torch.arange(batch_size)]
-            end_tag = tags[end_idx - 1, torch.arange(batch_size)]
-            score += self.transitions[start_tag, end_tag] * mask[start_idx, torch.arange(batch_size)]
+            start_tag = tags[start_idx - 1, one_to_bs]
+            end_tag = tags[end_idx - 1, one_to_bs]
+            score += self.transitions[start_tag, end_tag] * mask[start_idx, one_to_bs]
 
-            # Update the start index to the next segment
-            # start_idx = torch.minimum(start_idx + seg_length, max_idx)
+            seg_score += self.transitions[start_tag, end_tag] * mask[start_idx, one_to_bs]
 
         # End transition score
         # shape: (batch_size,)
         seq_ends = mask.long().sum(dim=0) - 1
         # shape: (batch_size,)
-        last_tags = tags[seq_ends, torch.arange(batch_size)]
+        last_tags = tags[seq_ends, one_to_bs]
         # shape: (batch_size,)
         score += self.end_transitions[last_tags]
 
         return score
+
+    def _compute_normalizer2(self, emissions: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        # emissions: (seq_length, batch_size, num_tags)
+        # mask: (seq_length, batch_size)
+        assert emissions.dim() == 3 and mask.dim() == 2
+        assert emissions.shape[:2] == mask.shape
+        assert emissions.size(2) == self.num_tags
+        assert mask[0].all()
+
+        seq_length, batch_size, _ = emissions.shape
+
+        # Start transition score and first emission; score has size of
+        # (batch_size, num_tags) where for each batch, the j-th column stores
+        # the score that the first timestep has tag j
+        # shape: (batch_size, num_tags)
+        # alpha[i, :, t] = score of segment ending at index i with tag t
+        alpha = torch.zeros(seq_length, batch_size, self.num_tags, dtype=emissions.dtype, device=emissions.device)
+
+        # (batch_size, num_tags)
+        alpha[0, :, :] = self.transitions[-2, :3] + emissions[0]
+
+        segment_score = torch.full(
+            (self.max_segment_length, batch_size, self.num_tags),
+            fill_value=-10000,
+            dtype=emissions.dtype,
+            device=emissions.device,
+        )
+        for j in range(1, seq_length):
+            for i in range(self.max_segment_length):
+                if i > j:
+                    break
+
+                # Broadcast score for every possible next tag
+                # shape: (batch_size, num_tags, 1)
+                broadcast_score = alpha[j - i - 1, :, :].unsqueeze(2)
+
+                # Broadcast emission score for every possible current tag
+                # shape: (batch_size, 1, num_tags)
+                broadcast_emissions = emissions[j - i : j + 1].sum(dim=0).unsqueeze(1)
+
+                # shape: (batch_size, num_tags, num_tags)
+                next_score = broadcast_score + self.transitions[:3, :3] + broadcast_emissions
+
+                # shape: (batch_size, num_tags)
+                segment_score[i, :, :] = torch.logsumexp(next_score, dim=1)
+
+            # segment_score shape: (seg_length, batch_size, num_tags)
+            # shape: (batch_size, num_tags)
+            alpha_nxt = torch.logsumexp(segment_score, dim=0)
+            alpha[j, :, :] = torch.where(mask[j].unsqueeze(1), alpha_nxt, alpha[j - 1])
+
+        # End transition score
+        # shape: (batch_size, num_tags)
+        alpha[-1, :, :] += self.transitions[-1, :3].unsqueeze(0)
+
+        # Sum (log-sum-exp) over all possible tags
+        # shape: (batch_size,)
+        return torch.logsumexp(alpha[-1, :, :], dim=1)
 
     def _compute_normalizer(self, emissions: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # emissions: (seq_length, batch_size, num_tags)
@@ -295,7 +450,8 @@ class SemiCRF(nn.Module):
         # (batch_size, num_tags) where for each batch, the j-th column stores
         # the score that the first timestep has tag j
         # shape: (batch_size, num_tags)
-        broadcast_emissions = self.compute_segment_vector(emissions, 0, 0)
+        zero = torch.zeros(batch_size, dtype=torch.long, device=emissions.device)
+        broadcast_emissions = self.compute_segment_vector(emissions, zero, zero)
 
         # alpha[i, :, t] = score of segment ending at index i with tag t
         alpha = torch.full(
@@ -325,10 +481,12 @@ class SemiCRF(nn.Module):
 
                 # Broadcast emission score for every possible current tag
                 # shape: (batch_size, 1, num_tags)
-                broadcast_emissions = self.compute_segment_vector(emissions, j - i, j).unsqueeze(1)
+                start = torch.full(size=(batch_size,), fill_value=j - i, dtype=torch.long)
+                end = torch.full(size=(batch_size,), fill_value=j, dtype=torch.long)
+                broadcast_emissions = self.compute_segment_vector(emissions, start, end).unsqueeze(1)
 
                 # shape: (batch_size, num_tags, num_tags)
-                next_score = broadcast_score + self.transitions + broadcast_emissions
+                next_score = broadcast_score + self.transitions[:3, :3] + broadcast_emissions
 
                 # shape: (batch_size, num_tags)
                 segment_score[i, :, :] = torch.logsumexp(next_score, dim=1)
@@ -490,8 +648,8 @@ class CRF(nn.Module):
     def forward(
         self,
         emissions: torch.Tensor,
-        tags: torch.LongTensor,
-        mask: Optional[torch.ByteTensor] = None,
+        tags: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
         reduction: str = "sum",
     ) -> torch.Tensor:
         """Compute the conditional log likelihood of a sequence of tags given emission scores.
@@ -500,10 +658,10 @@ class CRF(nn.Module):
             emissions (`~torch.Tensor`): Emission score tensor of size
                 ``(seq_length, batch_size, num_tags)`` if ``batch_first`` is ``False``,
                 ``(batch_size, seq_length, num_tags)`` otherwise.
-            tags (`~torch.LongTensor`): Sequence of tags tensor of size
+            tags (`~torch.Tensor`): Sequence of tags tensor of size
                 ``(seq_length, batch_size)`` if ``batch_first`` is ``False``,
                 ``(batch_size, seq_length)`` otherwise.
-            mask (`~torch.ByteTensor`): Mask tensor of size ``(seq_length, batch_size)``
+            mask (`~torch.Tensor`): Mask tensor of size ``(seq_length, batch_size)``
                 if ``batch_first`` is ``False``, ``(batch_size, seq_length)`` otherwise.
             reduction: Specifies  the reduction to apply to the output:
                 ``none|sum|mean|token_mean``. ``none``: no reduction will be applied.
@@ -526,9 +684,9 @@ class CRF(nn.Module):
             mask = mask.transpose(0, 1)
 
         # shape: (batch_size,)
-        numerator = self._compute_score(emissions, tags, mask)
+        numerator = self._compute_score(emissions, tags=tags, mask=mask)
         # shape: (batch_size,)
-        denominator = self._compute_normalizer(emissions, mask, tags)
+        denominator = self._compute_normalizer(emissions, mask=mask)
         # shape: (batch_size,)
         llh = numerator - denominator
 
@@ -541,14 +699,14 @@ class CRF(nn.Module):
         assert reduction == "token_mean"
         return llh.sum() / mask.float().sum()
 
-    def decode(self, emissions: torch.Tensor, mask: Optional[torch.ByteTensor] = None) -> List[List[int]]:
+    def decode(self, emissions: torch.Tensor, mask: Optional[torch.Tensor] = None) -> List[List[int]]:
         """Find the most likely tag sequence using Viterbi algorithm.
 
         Args:
             emissions (`~torch.Tensor`): Emission score tensor of size
                 ``(seq_length, batch_size, num_tags)`` if ``batch_first`` is ``False``,
                 ``(batch_size, seq_length, num_tags)`` otherwise.
-            mask (`~torch.ByteTensor`): Mask tensor of size ``(seq_length, batch_size)``
+            mask (`~torch.Tensor`): Mask tensor of size ``(seq_length, batch_size)``
                 if ``batch_first`` is ``False``, ``(batch_size, seq_length)`` otherwise.
 
         Returns:
@@ -565,7 +723,7 @@ class CRF(nn.Module):
         return self._viterbi_decode(emissions, mask)
 
     def _validate(
-        self, emissions: torch.Tensor, tags: Optional[torch.LongTensor] = None, mask: Optional[torch.ByteTensor] = None
+        self, emissions: torch.Tensor, tags: Optional[torch.Tensor] = None, mask: Optional[torch.Tensor] = None
     ) -> None:
         if emissions.dim() != 3:
             raise ValueError(f"emissions must have dimension of 3, got {emissions.dim()}")
@@ -590,7 +748,7 @@ class CRF(nn.Module):
             if not no_empty_seq and not no_empty_seq_bf:
                 raise ValueError("mask of the first timestep must all be on")
 
-    def _compute_score(self, emissions: torch.Tensor, tags: torch.LongTensor, mask: torch.ByteTensor) -> torch.Tensor:
+    def _compute_score(self, emissions: torch.Tensor, tags: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # emissions: (seq_length, batch_size, num_tags)
         # tags: (seq_length, batch_size)
         # mask: (seq_length, batch_size)
@@ -611,6 +769,8 @@ class CRF(nn.Module):
         for i in range(1, seq_length):
             # Transition score to next tag, only added if next timestep is valid (mask == 1)
             # shape: (batch_size,)
+            ts_score = emissions[i, torch.arange(batch_size), tags[i]] * mask[i]
+            ts_score += self.transitions[tags[i - 1], tags[i]] * mask[i]
             score += self.transitions[tags[i - 1], tags[i]] * mask[i]
 
             # Emission score for next tag, only added if next timestep is valid (mask == 1)
@@ -627,7 +787,7 @@ class CRF(nn.Module):
 
         return score
 
-    def _compute_normalizer(self, emissions: torch.Tensor, mask: torch.ByteTensor) -> torch.Tensor:
+    def _compute_normalizer(self, emissions: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # emissions: (seq_length, batch_size, num_tags)
         # mask: (seq_length, batch_size)
         assert emissions.dim() == 3 and mask.dim() == 2
@@ -677,7 +837,7 @@ class CRF(nn.Module):
         # shape: (batch_size,)
         return torch.logsumexp(score, dim=1)
 
-    def _viterbi_decode(self, emissions: torch.FloatTensor, mask: torch.ByteTensor) -> List[List[int]]:
+    def _viterbi_decode(self, emissions: torch.Tensor, mask: torch.Tensor) -> List[List[int]]:
         # emissions: (seq_length, batch_size, num_tags)
         # mask: (seq_length, batch_size)
         assert emissions.dim() == 3 and mask.dim() == 2
@@ -763,48 +923,50 @@ if __name__ == "__main__":
     labels = ["a", "b", "c"]
     label2id = {l: i for i, l in enumerate(labels)}
     B = 2
-    N = 20
+    N = 500
     T = len(labels)
 
     # Model
     scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=1)
     crf = CRF(num_tags=T, batch_first=True)
 
-    # Make the weights the same so it's easy to compare values
+    # # Make the weights the same so it's easy to compare values
     scrf.start_transitions = crf.start_transitions
-    scrf.transitions = crf.transitions
+    scrf.transitions.data[:3, :3] = crf.transitions
+    scrf.transitions.data[-2, :3] = crf.start_transitions
     scrf.end_transitions = crf.end_transitions
+    scrf.transitions.data[-1, :3] = crf.end_transitions
 
     # Fake input
     emissions = torch.randn(N, B, T, dtype=torch.float32)
     tags = torch.randint(0, T, (N, B))
-    # tags = torch.tensor([[0, 1, 0, 1, 0], [0, 1, 0, 1, 0], [1, 0, 1, 0, 1]]).T
+    tags[N - 3 :, 1] = -100
     # ic(tags)
-    # ic(emissions)
-    # tags[N - 3 :, 1] = -100
     mask = (tags != -100).long()
 
+    # scalene_profiler.start()
     if sys.argv[-1] == "scrf":
-        score = scrf._compute_score(emissions, tags, mask.bool())
-        ic(score)
-
-    if sys.argv[-1] == "crf":
-        score = crf._compute_score(emissions, tags * mask, mask.bool())
-        ic(score)
-
-    if sys.argv[-1] == "scrf":
-        # score = crf._compute_score(emissions, tags, mask)
-        norm = scrf._compute_normalizer(emissions, mask.bool())
+        # with timer("scrf score"):
+        #     score = scrf._compute_score(emissions, tags, mask.bool())
+        with timer("scrf norm"):
+            norm = scrf._compute_normalizer(emissions, mask.bool())
         ic(norm)
-
-    if sys.argv[-1] == "crf":
-        norm = crf._compute_normalizer(emissions, mask.bool())
+    if sys.argv[-1] == "scrf2":
+        # with timer("scrf score2"):
+        #     score2 = scrf._compute_score2(emissions, tags, mask.bool())
+        # ic(score2)
+        with timer("scrf norm2"):
+            norm = scrf._compute_normalizer2(emissions, mask.bool())
         ic(norm)
-
-    if sys.argv[-1] == "scrf":
-        best_tags = scrf._viterbi_decode(emissions, mask.bool())
-        ic(best_tags)
+        # best_tags = scrf._viterbi_decode(emissions, mask.bool())
 
     if sys.argv[-1] == "crf":
-        best_tags = crf._viterbi_decode(emissions, mask.bool())
-        ic(best_tags)
+        # with timer("crf score"):
+        #     score = crf._compute_score(emissions, tags * mask, mask.bool())
+        # ic(score)
+        with timer("crf norm"):
+            norm = crf._compute_normalizer(emissions, mask.bool())
+        ic(norm)
+        # best_tags = crf._viterbi_decode(emissions, mask.bool())
+
+    # scalene_profiler.stop()

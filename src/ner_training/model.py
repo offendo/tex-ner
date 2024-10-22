@@ -31,14 +31,14 @@ class BertWithCRF(PreTrainedModel):
             name=config.name,
             reference=config.reference,
         )
-        bert_config = AutoConfig.from_pretrained(config.model_name_or_path, num_labels=config.num_labels)
+        self.num_labels = len(label2id)
+        bert_config = AutoConfig.from_pretrained(config.model_name_or_path, num_labels=self.num_labels)
         super().__init__(bert_config)
         id2label = {v: k for k, v in label2id.items()}
-        self.num_labels = config.num_labels
         self.crf_loss_reduction = config.crf_loss_reduction
         self.ctx = config.context_len
         self.overlap = config.overlap_len
-        if config.debug:
+        if config.model_debug:
             bert_config.hidden_size = 128
             bert_config.intermediate_size = 256
             bert_config.num_hidden_layers = 2
@@ -47,7 +47,7 @@ class BertWithCRF(PreTrainedModel):
         else:
             self.bert = AutoModelForTokenClassification.from_pretrained(
                 config.model_name_or_path,
-                num_labels=config.num_labels,
+                num_labels=self.num_labels,
                 label2id=label2id,
                 id2label=id2label,
                 hidden_dropout_prob=config.dropout,
@@ -196,7 +196,7 @@ class BertWithCRF(PreTrainedModel):
 
 
 class StackedBertWithCRF(nn.Module):
-    def __init__(self, config: BertWithCRFConfig):
+    def __init__(self, config: Config):
         super().__init__()
         self.base = BertWithCRF(config)
         self.tag_pad_token = 0
@@ -213,7 +213,7 @@ class StackedBertWithCRF(nn.Module):
         bert_config.pad_token_id = self.tag_pad_token
         bert_config.bos_token_id = None
         bert_config.eos_token_id = None
-        if config.debug:
+        if config.model_debug:
             bert_config.hidden_size = 128
             bert_config.intermediate_size = 256
             bert_config.num_hidden_layers = 2

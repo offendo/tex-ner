@@ -191,7 +191,7 @@ def train(config: Config, training_args: TrainingArguments):
     training_obj = TrainingObject.setup(config, training_args)
 
     training_obj.trainer.train()
-    training_obj.trainer.save_model(str(Path(config.output_dir) / "checkpoint-best"))
+    training_obj.trainer.save_model(str(Path(training_args.output_dir) / "checkpoint-best"))
 
     state_dict = {}
     from safetensors import safe_open
@@ -203,8 +203,8 @@ def train(config: Config, training_args: TrainingArguments):
 
     logging.info("Averaging checkpoints")
     checkpoints = [
-        Path(config.output_dir, ckpt)
-        for ckpt in os.listdir(config.output_dir)
+        Path(training_args.output_dir, ckpt)
+        for ckpt in os.listdir(training_args.output_dir)
         if "checkpoint" in ckpt and "best" not in ckpt
     ]
     logging.info(f"Found {len(checkpoints)} checkpoints")
@@ -217,7 +217,7 @@ def train(config: Config, training_args: TrainingArguments):
                     state_dict[k] = file.get_tensor(k) / len(checkpoints)
 
     # Save the averaged checkpoints
-    avg_path = Path(config.output_dir, "checkpoint-avg", "model.safetensors")
+    avg_path = Path(training_args.output_dir, "checkpoint-avg", "model.safetensors")
     avg_path.parent.mkdir(exist_ok=True, parents=True)
     save_file(state_dict, avg_path)
     logging.info(f"Saved at {avg_path}")
@@ -247,9 +247,9 @@ def test(config: Config, training_args: TrainingArguments):
         }
         test_df = pd.DataFrame(output)
         if config.output_name is not None:
-            test_df.to_json(Path(config.output_dir, f"{config.output_name}.{split}.preds.json"))
+            test_df.to_json(Path(training_args.output_dir, f"{config.output_name}.{split}.preds.json"))
         else:
-            test_df.to_json(Path(config.output_dir, f"{split}.preds.json"))
+            test_df.to_json(Path(training_args.output_dir, f"{split}.preds.json"))
 
 
 def tune(config: Config, training_args: TrainingArguments):
@@ -309,7 +309,7 @@ def tune(config: Config, training_args: TrainingArguments):
     logging.info("Completed hyperparameter search.")
     logging.info(best_trial)
 
-    save_path = Path(config.output_dir, "best-trial.pt")
+    save_path = Path(training_args.output_dir, "best-trial.pt")
     with open(save_path, "wb") as f:
         torch.save(best_trial, f)
         logging.info(f"Saved hyperparameter search results to {save_path}.")
@@ -354,7 +354,7 @@ def predict(config: Config, training_args: TrainingArguments):
 
             # flatten each file's output into one row
             test_df = test_df.groupby("file").agg(lambda xs: [y for x in xs for y in x]).reset_index()
-            test_df.to_json(Path(config.output_dir, f"mmd.preds-{idx}.json"))
+            test_df.to_json(Path(training_args.output_dir, f"mmd.preds-{idx}.json"))
 
         batch_out = model.forward(
             input_ids=batch["input_ids"].to(model.bert.device),
@@ -376,25 +376,25 @@ def predict(config: Config, training_args: TrainingArguments):
 
     # flatten each file's output into one row
     test_df = test_df.groupby("file").agg(lambda xs: [y for x in xs for y in x]).reset_index()
-    test_df.to_json(Path(config.output_dir, f"mmd.preds.json"))
+    test_df.to_json(Path(training_args.output_dir, f"mmd.preds.json"))
 
     # Conver the predictions to a list of annotations
     # TODO figure out how to get start/end indices
     for idx, row in test_df.iterrows():
         annos = convert_tags_to_annotations(tokens=row.tokens, tags=row.preds, tokenizer=tokenizer)
         anno_df = pd.DataFrame.from_records(annos)
-        anno_df.to_json(Path(config.output_dir, f"{Path(row.file).stem}.annos.json"))
+        anno_df.to_json(Path(training_args.output_dir, f"{Path(row.file).stem}.annos.json"))
 
 
 if __name__ == "__main__":
     parser = HfArgumentParser([Config, TrainingArguments])  # type:ignore
     config, training_args = parser.parse_args_into_dataclasses()
 
-    if config.do_train:
+    if config.run_train:
         train(config, training_args)
-    if config.do_test:
+    if config.run_test:
         test(config, training_args)
-    if config.do_predict:
+    if config.run_predict:
         predict(config, training_args)
-    if config.do_tune:
+    if config.run_tune:
         tune(config, training_args)
