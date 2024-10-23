@@ -116,7 +116,9 @@ def load_model(config: Config):
         state_dict = {}
         from safetensors import safe_open
 
-        with safe_open(Path(checkpoint, "model.safetensors"), framework="pt", device=DEVICE) as file:  # type:ignore
+        with safe_open(
+            Path(config.checkpoint, "model.safetensors"), framework="pt", device=DEVICE
+        ) as file:  # type:ignore
             for k in file.keys():
                 state_dict[k] = file.get_tensor(k)
         if isinstance(model, BertWithCRF):
