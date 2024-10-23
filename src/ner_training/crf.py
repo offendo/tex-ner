@@ -349,7 +349,7 @@ class SemiCRF(nn.Module):
 
         # End transition score
         # shape: (batch_size, num_tags)
-        alpha[-1, :, :] += self.end_transitions
+        alpha[-1, :, :] += self.transitions[-1, :-2]
         seq_ends = mask.long().sum(dim=0) - 1
         best_tags_list = []
 
@@ -656,7 +656,7 @@ class CRF(nn.Module):
             # for each sample, entry at row i and column j stores the score of the best
             # tag sequence so far that ends with transitioning from tag i to tag j and emitting
             # shape: (batch_size, num_tags, num_tags)
-            next_score = broadcast_score + self.transitions + broadcast_emission
+            next_score = broadcast_score + self.transitions[:-2, :-2] + broadcast_emission
 
             # Find the maximum score over all possible current tag
             # shape: (batch_size, num_tags)

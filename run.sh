@@ -31,24 +31,27 @@ for ((i=1; i<=$NTRIALS; i++)); do
   # Run training
   export WANDB_RUN_NAME="$RUN_NAME"
   if [[ $DO_TRAIN = 'true' ]]; then
-    python src/ner_training/main.py --run_train \
-      --model FacebookAI/roberta-base \
-      $CRF \
-      $CLASSES \
-      $TRAIN_FLAGS \
-      --learning_rate $LEARNING_RATE \
-      --batch_size $BATCH_SIZE \
-      --eval_steps 100 --eval_strategy "steps" \
-      --logging_strategy "steps" --logging_steps 10 \
-      --label_smoothing_factor $LABEL_SMOOTHING --warmup_ratio $WARMUP_RATIO --weight_decay $WEIGHT_DECAY --dropout $DROPOUT \
-      --optim "adamw_hf" --scheduler $SCHEDULER \
-      --data_dir /volume/ner/$DATASET --output_dir /volume/ner/outputs/$ITER_NAME
-  fi
+     python src/ner_training/main.py --run_train \
+       --model_name_or_path FacebookAI/roberta-base \
+       $CRF \
+       $CLASSES \
+       $TRAIN_FLAGS \
+       --learning_rate $LEARNING_RATE \
+       --per_device_train_batch_size $BATCH_SIZE \
+       --per_device_eval_batch_size $BATCH_SIZE \
+       --eval_steps 100 --eval_strategy "steps" \
+       --logging_strategy "steps" --logging_steps 10 \
+       --label_smoothing_factor $LABEL_SMOOTHING --warmup_ratio $WARMUP_RATIO --weight_decay $WEIGHT_DECAY --dropout $DROPOUT \
+       --optim "adamw_hf" --lr_scheduler_type $SCHEDULER \
+       --data_dir /volume/ner/$DATASET --output_dir /volume/ner/outputs/$ITER_NAME
+   fi
+
+
 
   # Run testing
   if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-avg ]; then
     python src/ner_training/main.py --run_test \
-        --model FacebookAI/roberta-base \
+        --model_name_or_path FacebookAI/roberta-base \
         $CRF \
         --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-avg \
         $CLASSES \
@@ -59,7 +62,7 @@ for ((i=1; i<=$NTRIALS; i++)); do
 
   if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-best ]; then
     python src/ner_training/main.py --run_test \
-        --model FacebookAI/roberta-base \
+        --model_name_or_path FacebookAI/roberta-base \
         $CRF \
         --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-best \
         $CLASSES \
