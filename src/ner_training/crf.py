@@ -329,7 +329,7 @@ class SemiCRF(nn.Module):
                 broadcast_emissions = emissions[j - i : j + 1].sum(dim=0).unsqueeze(1)
 
                 # shape: (batch_size, num_tags, num_tags)
-                next_score = broadcast_score + self.transitions + broadcast_emissions
+                next_score = broadcast_score + self.transitions[:-2, :-2] + broadcast_emissions
 
                 # vit_max shape: (batch_size, num_tags)
                 # vit_argmax shape: (batch_size, num_tags)
