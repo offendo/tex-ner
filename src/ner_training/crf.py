@@ -51,7 +51,7 @@ class SemiCRF(nn.Module):
         """
         # nn.init.uniform_(self.start_transitions, -0.1, 0.1)
         # nn.init.uniform_(self.end_transitions, -0.1, 0.1)
-        nn.init.uniform_(self.transitions, -0.1, 0.1)
+        nn.init.xavier_uniform_(self.transitions)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(num_tags={self.num_tags})"
@@ -239,6 +239,10 @@ class SemiCRF(nn.Module):
         assert emissions.shape[:2] == mask.shape
         assert emissions.size(2) == self.num_tags
         assert mask[0].all()
+
+        # FIXME: I shouldn't be applying the transition probabilities between every token, just
+        # between every segment. This means the `+ self.transitions` should be in the bigger loop,
+        # not in the inner one...I think. Calculate this by hand
 
         seq_length, batch_size, _ = emissions.shape
 
