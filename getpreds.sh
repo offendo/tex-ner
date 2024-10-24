@@ -21,9 +21,9 @@ mkdir -p results/$NAME
 
 for SPLIT in test val train; do
   if [[ $TYPE != "" ]]; then
-    kubectl cp nilay-pod:/volume/ner/outputs/$NAME/$TYPE.$SPLIT.preds.json results/$NAME/$TYPE.$SPLIT.preds.json;
+    kubectl cp "nilay-pod":/volume/ner/outputs/$NAME/$TYPE.$SPLIT.preds.json results/$NAME/$TYPE.$SPLIT.preds.json;
   else
-    kubectl cp nilay-pod:/volume/ner/outputs/$NAME/$SPLIT.preds.json results/$NAME/default.$SPLIT.preds.json;
+    kubectl cp "nilay-pod":/volume/ner/outputs/$NAME/$SPLIT.preds.json results/$NAME/default.$SPLIT.preds.json;
   fi
 done
 
