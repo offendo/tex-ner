@@ -18,12 +18,11 @@ if [[ -z $NAME ]]; then
 fi
 
 mkdir -p results/$NAME
-
 for SPLIT in test val train; do
   if [[ $TYPE != "" ]]; then
-    kubectl cp "nilay-pod":/volume/ner/outputs/$NAME/$TYPE.$SPLIT.preds.json results/$NAME/$TYPE.$SPLIT.preds.json;
+    kubectl --insecure-skip-tls-verify cp nilay-pod:/volume-east/ner/outputs/$NAME/$TYPE.$SPLIT.preds.json results/$NAME/$TYPE.$SPLIT.preds.json > /dev/null
   else
-    kubectl cp "nilay-pod":/volume/ner/outputs/$NAME/$SPLIT.preds.json results/$NAME/default.$SPLIT.preds.json;
+    kubectl --insecure-skip-tls-verify cp nilay-pod:/volume-east/ner/outputs/$NAME/$SPLIT.preds.json results/$NAME/default.$SPLIT.preds.json > /dev/null
   fi
 done
 
@@ -46,7 +45,7 @@ for split in ['test', 'val', 'train']:
   df['probs'] = df.logits.apply(lambda x: softmax(np.stack([np.array(y) for y in x], axis=0)).tolist())
   df['tokens'] = df['tokens'].apply(lambda xs: [x for x in xs if x != '<pad>'])
   df = df[['labels', 'preds', 'tokens', 'probs']].explode(['labels', 'preds', 'tokens', 'probs'])
-  df['probs'] = df['probs'].apply(lambda xs: ', '.join([f"{x:0.2f}" for x in xs]))
+  df['probs'] = df['probs'].apply(lambda xs: ', '.join([f"{x:0.4f} ({i})" for i, x in sorted(enumerate(xs), key=lambda y: -y[1])[:3]]))
   df.to_csv(f'{split}.outputs.csv', sep='\t', index=False, float_format=lambda x: '%.2f')
 
 EOF
