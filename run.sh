@@ -39,7 +39,7 @@ for ((i=1; i<=$NTRIALS; i++)); do
        --learning_rate $LEARNING_RATE \
        --per_device_train_batch_size $BATCH_SIZE \
        --per_device_eval_batch_size $BATCH_SIZE \
-       --eval_steps 500 --eval_strategy "steps" \
+       --eval_steps 250 --eval_strategy "steps" \
        --logging_strategy "steps" --logging_steps 10 \
        --label_smoothing_factor $LABEL_SMOOTHING --warmup_ratio $WARMUP_RATIO --weight_decay $WEIGHT_DECAY --dropout $DROPOUT \
        --optim "adamw_hf" --lr_scheduler_type $SCHEDULER \
