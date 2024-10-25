@@ -205,6 +205,7 @@ class SemiCRF(nn.Module):
         seg_emissions = emissions[:, bs, tags[0]] * (seg_nums == 0)
         score = seg_emissions.sum(dim=0) + self.transitions[-2, tags[0]]
 
+        segment_mask = mask * seg_starts
         for j in range(1, seq_length):
             seg_idx = seg_nums[j]
             # 1. Compute the emission probability of the current segment (this can be anything, right now it's the sum of first and last element)
@@ -213,10 +214,9 @@ class SemiCRF(nn.Module):
             # Transition score to next tag, only added if next timestep is valid (mask == 1)
             # shape: (batch_size,)
             seg_emissions = emissions[:, bs, tags[j]] * (seg_nums == seg_idx)
-            score += (seg_emissions.sum(dim=0) + self.transitions[tags[j - 1], tags[j]]) * mask[j] * seg_starts[j]
+            score += (seg_emissions.sum(dim=0) + self.transitions[tags[j - 1], tags[j]]) * segment_mask[j]
 
         # Only count the idxs where the segment starts, since otherwise we'd double count
-        # score *= seg_starts
 
         # Now add the end transition score; note we do this after so we don't have to worry about
         # adding the transition to the right index
@@ -265,30 +265,32 @@ class SemiCRF(nn.Module):
             )
             for i in range(min(self.max_segment_length, j)):
 
-                # Broadcast score for every possible next tag
+                # Dynamic programming: Case i indicates a segment of length i ending at the current timestep j
+
+                # Score up to the start of this segment:
                 # shape: (batch_size, num_tags, 1)
                 broadcast_score = alpha[j - i - 1, :, :].unsqueeze(2)
 
-                # Broadcast emission score for every possible current tag
+                # Emission score for the segment of length i, starting at j-i and ending at j (i.e., j+1 non-inclusive)
                 # shape: (batch_size, 1, num_tags)
                 broadcast_emissions = emissions[j - i : j + 1].sum(dim=0).unsqueeze(1)
 
+                # Next score is the previous score + transition between previous and current segment + score of current segment
                 # shape: (batch_size, num_tags, num_tags)
                 next_score = broadcast_score + self.transitions[:-2, :-2] + broadcast_emissions
 
-                # shape: (batch_size, num_tags)
-                segment_score[i, :, :] = torch.logsumexp(next_score, dim=1)
+                # Logsumexp over all possible segment lengths, which gets the overall score of the current tag being
+                segment_score[i, :, :] = torch.logsumexp(next_score, dim=1)  # shape: (batch_size, num_tags)
 
-            # segment_score shape: (seg_length, batch_size, num_tags)
-            # shape: (batch_size, num_tags)
-            alpha_nxt = torch.logsumexp(segment_score, dim=0)
+            # Now, logsumexp over the previous tags (dim 0) to get the scores for each of the current tags (dim 2)
+            alpha_nxt = torch.logsumexp(segment_score, dim=0)  #  shape: (batch_size, num_tags)
             alpha[j, :, :] = torch.where(mask[j].unsqueeze(1), alpha_nxt, alpha[j - 1])
 
-        # End transition score
+        # Add in the transition score for T_j --> <STOP>
         # shape: (batch_size, num_tags)
         alpha[-1, :, :] += self.transitions[-1, :-2]
 
-        # Sum (log-sum-exp) over all possible tags
+        # Finally, logsumexp over all possible current tags to see the final score of the sequence
         # shape: (batch_size,)
         return torch.logsumexp(alpha[-1, :, :], dim=1)
 
@@ -324,20 +326,24 @@ class SemiCRF(nn.Module):
                 if i > j:
                     break
 
-                # Broadcast score for every possible next tag
+                # Dynamic programming: Case i indicates a segment of length i ending at the current timestep j
+
+                # Score up to the start of this segment:
                 # shape: (batch_size, num_tags, 1)
                 broadcast_score = alpha[j - i - 1, :, :].unsqueeze(2)
 
-                # Broadcast emission score for every possible current tag
+                # Emission score for the segment of length i, starting at j-i and ending at j (i.e., j+1 non-inclusive)
                 # shape: (batch_size, 1, num_tags)
                 broadcast_emissions = emissions[j - i : j + 1].sum(dim=0).unsqueeze(1)
 
+                # Next score is the previous score + transition between previous and current segment + score of current segment
                 # shape: (batch_size, num_tags, num_tags)
                 next_score = broadcast_score + self.transitions[:-2, :-2] + broadcast_emissions
 
-                # vit_max shape: (batch_size, num_tags)
-                # vit_argmax shape: (batch_size, num_tags)
-                alpha_nxt, indices = next_score.max(dim=1)
+                # The most likely segment of length i is one of tag `indices`
+                # alpha_nxt shape: (batch_size, num_tags)
+                # indices shape: (batch_size, num_tags)
+                alpha_nxt, indices = next_score.max(dim=2)
 
                 # shape: (batch_size, num_tags)
                 segment_score[i, :, :] = alpha_nxt
@@ -660,7 +666,7 @@ class CRF(nn.Module):
             # for each sample, entry at row i and column j stores the score of the best
             # tag sequence so far that ends with transitioning from tag i to tag j and emitting
             # shape: (batch_size, num_tags, num_tags)
-            next_score = broadcast_score + self.transitions[:-2, :-2] + broadcast_emission
+            next_score = broadcast_score + self.transitions + broadcast_emission
 
             # Find the maximum score over all possible current tag
             # shape: (batch_size, num_tags)
@@ -710,7 +716,7 @@ if __name__ == "__main__":
     labels = ["a", "b", "c"]
     label2id = {l: i for i, l in enumerate(labels)}
     B = 2
-    N = 500
+    N = 10
     T = len(labels)
 
     # Model
@@ -728,7 +734,7 @@ if __name__ == "__main__":
     emissions = torch.randn(N, B, T, dtype=torch.float32)
     tags = torch.randint(0, T, (N, B))
     tags[N - 3 :, 1] = -100
-    # ic(tags)
+    ic(tags)
     mask = (tags != -100).long()
 
     # scalene_profiler.start()
@@ -739,15 +745,6 @@ if __name__ == "__main__":
             norm = scrf._compute_normalizer(emissions, mask.bool())
         ic(score)
         ic(norm)
-    if sys.argv[-1] == "scrf2":
-        with timer("scrf score2"):
-            score = scrf._compute_score2(emissions, tags, mask.bool())
-        with timer("scrf norm2"):
-            norm = scrf._compute_normalizer2(emissions, mask.bool())
-        ic(score)
-        ic(norm)
-        # best_tags = scrf._viterbi_decode(emissions, mask.bool())
-
     if sys.argv[-1] == "crf":
         with timer("crf score"):
             score = crf._compute_score(emissions, tags * mask, mask.bool())

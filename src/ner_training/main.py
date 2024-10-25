@@ -7,6 +7,7 @@ from pathlib import Path
 from pprint import pformat
 from typing import Callable, Iterable
 
+from icecream import ic
 import evaluate
 import numpy as np
 import pandas as pd
@@ -45,8 +46,7 @@ from ner_training.data import (
 from ner_training.model import BertWithCRF, StackedBertWithCRF
 from ner_training.trainer import CRFTrainer
 from ner_training.utils import *
-
-set_seed(42)
+import random
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -171,20 +171,25 @@ def make_compute_metrics(label2id):
 
         if isinstance(logits_and_preds, tuple):
             logits, preds = logits_and_preds  # type:ignore
+            bert_preds = np.argmax(logits, axis=-1)
         else:
             logits = logits_and_preds
             preds = np.argmax(logits, axis=-1)
+            bert_preds = None
 
         classes = [cls for cls in label2id.values() if cls != 0]
 
         ls = [l for l in labels.ravel() if l != -100]
         ps = [p for p, l in zip(preds.ravel(), labels.ravel()) if l != -100]
+        if bert_preds is not None:
+            bps = [p for p, l in zip(bert_preds.ravel(), labels.ravel()) if l != -100]
 
         if len(label2id) == 2:
             p, r, f, _ = precision_recall_fscore_support(ls, ps, average="binary", pos_label=1)
         else:
             p, r, f, _ = precision_recall_fscore_support(ls, ps, average="micro", labels=classes)
-        return dict(precision=p, recall=r, f1=f)
+            bp, br, bf, _ = precision_recall_fscore_support(ls, bps, average="micro", labels=classes)
+        return dict(precision=p, recall=r, f1=f, bert_precision=bp, bert_recall=br, bert_f1=bf)
 
     return compute_metrics
 
@@ -238,7 +243,7 @@ def test(config: Config, training_args: TrainingArguments):
             logging.info(pformat(metrics))
         else:
             (logits, preds), labels, metrics = trainer.predict(dataset[split])  # type:ignore
-            preds = np.argmax(logits, axis=-1)
+            # preds = np.argmax(logits, axis=-1)
             logging.info(pformat(metrics))
 
         output = {

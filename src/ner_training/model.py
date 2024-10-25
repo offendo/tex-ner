@@ -31,13 +31,19 @@ class BertWithCRF(PreTrainedModel):
             name=config.name,
             reference=config.reference,
         )
-        self.num_labels = len(label2id)
-        bert_config = AutoConfig.from_pretrained(config.model_name_or_path, num_labels=self.num_labels)
+        bert_config = AutoConfig.from_pretrained(
+            config.model_name_or_path,
+            num_labels=len(label2id),
+            hidden_dropout_prob=config.dropout,
+        )
         super().__init__(bert_config)
+
         id2label = {v: k for k, v in label2id.items()}
+        self.num_labels = len(label2id)
         self.crf_loss_reduction = config.crf_loss_reduction
         self.ctx = config.context_len
         self.overlap = config.overlap_len
+        self.logit_pooling = getattr(config, "logit_pooling", "mean")
         if config.model_debug:
             bert_config.hidden_size = 128
             bert_config.intermediate_size = 256
@@ -52,6 +58,8 @@ class BertWithCRF(PreTrainedModel):
                 id2label=id2label,
                 hidden_dropout_prob=config.dropout,
             )
+
+        # Init the CRF
         if config.crf_segment_length == 1:
             self.crf = CRF(self.num_labels, batch_first=True)
         elif config.crf_segment_length > 1:
@@ -118,11 +126,15 @@ class BertWithCRF(PreTrainedModel):
                 attention_mask=attention_mask[:, start:end],
                 labels=labels[:, start:end].contiguous() if labels is not None else None,
             )
-            logits[:, start:end, :] += outputs.logits
-            counts[start:end] += 1
+            if self.logit_pooling == "max":
+                logits[:, start:end, :] = torch.maximum(outputs.logits, logits[:, start:end, :])
+            elif self.logit_pooling == "mean":
+                logits[:, start:end, :] += outputs.logits
+                counts[start:end] += 1
 
         # Average them out
-        logits = logits / counts.view(1, -1, 1)
+        if self.logit_pooling == "mean":
+            logits = logits / counts.view(1, -1, 1)
 
         loss = 0.0
         if labels is not None:
