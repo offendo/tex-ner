@@ -5,48 +5,25 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from pprint import pformat
-from typing import Callable, Iterable
 
-from icecream import ic
 import evaluate
 import numpy as np
 import pandas as pd
 import ray
 import torch
 from datasets import Dataset, DatasetDict
-from more_itertools import chunked
+from icecream import ic
 from sklearn.metrics import precision_recall_fscore_support
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import (
-    AutoConfig,
-    AutoModel,
-    AutoModelForTokenClassification,
-    AutoTokenizer,
-    BatchEncoding,
-    EvalPrediction,
-    HfArgumentParser,
-    PretrainedConfig,
-    PreTrainedTokenizer,
-    Trainer,
-    TrainingArguments,
-    set_seed,
-)
+from transformers import AutoTokenizer, EvalPrediction, HfArgumentParser, Trainer, TrainingArguments, set_seed
 
 from ner_training.collator import DataCollatorForTokenClassification
 from ner_training.config import Config
-from ner_training.data import (
-    load_data,
-    load_data_for_stacked_model,
-    load_data_with_kfold,
-    load_dataset,
-    load_mmd_data_for_prediction,
-    load_predictions_file_for_name_ref_model,
-)
+from ner_training.data import load_dataset
 from ner_training.model import BertWithCRF, StackedBertWithCRF
 from ner_training.trainer import CRFTrainer
 from ner_training.utils import *
-import random
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -196,7 +173,6 @@ def make_compute_metrics(label2id):
 
 def train(config: Config, training_args: TrainingArguments):
     training_obj = TrainingObject.setup(config, training_args)
-
     training_obj.trainer.train()
     training_obj.trainer.save_model(str(Path(training_args.output_dir) / "checkpoint-best"))
 
