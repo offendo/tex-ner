@@ -1,9 +1,17 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-base-test
+  name: nilay-ner-train
+  labels:
+    jobgroup: nilay-ner-train
 spec:
+  completions: 10
+  parallelism: 10
   template:
+    metadata: 
+      name: nilay-ner-train
+      labels:
+        jobgroup: nilay-ner-train
     spec:
       affinity:
         nodeAffinity:
@@ -23,34 +31,32 @@ spec:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
           env:
-            - name: NTRIALS
-              value: "1"
             - name: RUN_NAME
-              value: base-fixed-crf-posttune
+              value: semicrf-fixed-again
             - name: PREDICT_ON_TRAIN
               value: "--predict_on_train"
             - name: CRF
-              value: "--crf"
+              value: "--crf_segment_length 16"
             - name: CLASSES
               value: "--definition --theorem --proof --example"
             - name: DO_TRAIN
-              value: "false"
+              value: "true"
             - name: TRAIN_FLAGS
-              value: "--steps 3315 --crf_loss_reduction token_mean"
+              value: "--max_steps 2000 --crf_loss_reduction token_mean"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE
               value: "0.00014445251022763073"
             - name: BATCH_SIZE
-              value: "4"
+              value: "8"
             - name: LABEL_SMOOTHING
-              value: "0.0456069984217036"
+              value: "0.1"
             - name: WARMUP_RATIO
-              value: "0.052477466025838915"
+              value: "0.06"
             - name: DROPOUT
               value: "0.0"
             - name: WEIGHT_DECAY
-              value: "0.00001583371833901207"
+              value: "1e-4"
             - name: SCHEDULER
               value: "inverse_sqrt"
           command: ["bash", "run.sh"]
@@ -67,12 +73,12 @@ spec:
               memory: 64Gi
               cpu: 2
               nvidia.com/gpu: 1
-              ephemeral-storage: 100Gi
+              ephemeral-storage: 50Gi
             requests:
               memory: 64Gi
               cpu: 2
               nvidia.com/gpu: 1
-              ephemeral-storage: 100Gi
+              ephemeral-storage: 50Gi
       initContainers:
         - name: git-sync
           image: registry.k8s.io/git-sync/git-sync:v4.1.0

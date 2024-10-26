@@ -8,7 +8,7 @@ spec:
   containers:
     - name: pod
       image: ghcr.io/offendo/ner:latest
-      command: ["sleep", "infinity"]
+      command: ["sleep", "3600"]
       workingDir: /
       volumeMounts:
         - name: nilay-data-volume-rwm-east

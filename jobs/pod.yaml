@@ -17,7 +17,7 @@ spec:
   containers:
     - name: training
       image: ghcr.io/offendo/ner:latest
-      command: ["sleep", "infinity"]
+      command: ["sleep", "3600"]
       workingDir: /app/tex-ner
       volumeMounts:
         - name: git-repo

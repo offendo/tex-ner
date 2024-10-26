@@ -26,6 +26,8 @@ spec:
           env:
             - name: RUN_NAME
               value: meta-llama-3-8b-instruct-constrained-copy
+            - name: DATASET
+              value: "conll-no-breaks"
             - name: CONSTRAINED
               value: "--constrained_generation"
             - name: MODEL
