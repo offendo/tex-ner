@@ -42,6 +42,7 @@ for ((i=1; i<=$NTRIALS; i++)); do
        --eval_steps 250 --eval_strategy "steps" \
        --logging_strategy "steps" --logging_steps 10 \
        --label_smoothing_factor $LABEL_SMOOTHING --warmup_ratio $WARMUP_RATIO --weight_decay $WEIGHT_DECAY --dropout $DROPOUT \
+       --load_best_model_at_end True --metric_for_best_model "eval_f1" \
        --optim "adamw_hf" --lr_scheduler_type $SCHEDULER \
        --data_dir /volume/ner/$DATASET --output_dir /volume/ner/outputs/$ITER_NAME
    fi
