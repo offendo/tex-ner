@@ -159,6 +159,9 @@ class SemiCRF(nn.Module):
             if not no_empty_seq and not no_empty_seq_bf:
                 raise ValueError("mask of the first timestep must all be on")
 
+    def pool(self, seg_emissions: torch.Tensor):
+        return seg_emissions.max(dim=0).values
+
     def _compute_score(
         self,
         emissions: torch.Tensor,
@@ -203,7 +206,7 @@ class SemiCRF(nn.Module):
         # first segment index = 0
         bs = torch.arange(batch_size)
         seg_emissions = emissions[:, bs, tags[0]] * (seg_nums == 0)
-        score = seg_emissions.sum(dim=0) + self.start_transitions[tags[0]]
+        score = self.pool(seg_emissions) + self.start_transitions[tags[0]]
 
         segment_mask = mask * seg_starts
         for j in range(1, seq_length):
@@ -214,7 +217,7 @@ class SemiCRF(nn.Module):
             # Transition score to next tag, only added if next timestep is valid (mask == 1)
             # shape: (batch_size,)
             seg_emissions = emissions[:, bs, tags[j]] * (seg_nums == seg_idx)
-            score += (seg_emissions.sum(dim=0) + self.transitions[tags[j - 1], tags[j]]) * segment_mask[j]
+            score += (self.pool(seg_emissions) + self.transitions[tags[j - 1], tags[j]]) * segment_mask[j]
 
         # Only count the idxs where the segment starts, since otherwise we'd double count
 
@@ -239,10 +242,6 @@ class SemiCRF(nn.Module):
         assert emissions.shape[:2] == mask.shape
         assert emissions.size(2) == self.num_tags
         assert mask[0].all()
-
-        # FIXME: I shouldn't be applying the transition probabilities between every token, just
-        # between every segment. This means the `+ self.transitions` should be in the bigger loop,
-        # not in the inner one...I think. Calculate this by hand
 
         seq_length, batch_size, _ = emissions.shape
 
@@ -273,7 +272,7 @@ class SemiCRF(nn.Module):
 
                 # Emission score for the segment of length i, starting at j-i and ending at j (i.e., j+1 non-inclusive)
                 # shape: (batch_size, 1, num_tags)
-                broadcast_emissions = emissions[j - i : j + 1].sum(dim=0).unsqueeze(1)
+                broadcast_emissions = self.pool(emissions[j - i : j + 1]).unsqueeze(1)
 
                 # Next score is the previous score + transition between previous and current segment + score of current segment
                 # shape: (batch_size, num_tags, num_tags)
@@ -334,7 +333,7 @@ class SemiCRF(nn.Module):
 
                 # Emission score for the segment of length i, starting at j-i and ending at j (i.e., j+1 non-inclusive)
                 # shape: (batch_size, 1, num_tags)
-                broadcast_emissions = emissions[j - i : j + 1].sum(dim=0).unsqueeze(1)
+                broadcast_emissions = self.pool(emissions[j - i : j + 1]).unsqueeze(1)
 
                 # Next score is the previous score + transition between previous and current segment + score of current segment
                 # shape: (batch_size, num_tags, num_tags)
