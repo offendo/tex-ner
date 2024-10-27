@@ -41,6 +41,7 @@ class Config:
     dropout: float = field(default=0.0, metadata={"help": "model dropout"})
     crf_loss_reduction: str = field(default="token_mean", metadata={"help": "crf loss reduction type"})
     crf_segment_length: int = field(default=0, metadata={"help": "semi-crf segment length"})
+    logit_pooling: str = field(default="mean", metadata={"help": "bert logit pooling strat for overlapping tokens"})
 
     # Initialization
     freeze_base: bool = field(default=False, metadata={"help": "freeze bert weights"})

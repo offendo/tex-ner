@@ -7,8 +7,9 @@ metadata:
 spec:
   completions: 10
   parallelism: 10
+  completionMode: Indexed
   template:
-    metadata: 
+    metadata:
       name: nilay-ner-train
       labels:
         jobgroup: nilay-ner-train
@@ -25,6 +26,7 @@ spec:
                       - NVIDIA-A100-80GB-PCIe
                       - NVIDIA-A100-80GB-PCIe
                       - NVIDIA-GeForce-RTX-3090
+                      - NVIDIA-GeForce-RTX-4090
       imagePullSecrets:
         - name: nilay-ghcr-key
       containers:
@@ -32,11 +34,11 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: semicrf-fixed-again
+              value: semicrf-full-documents
             - name: PREDICT_ON_TRAIN
               value: "--predict_on_train"
             - name: CRF
-              value: "--crf_segment_length 16"
+              value: "--crf_segment_length 16 --data_context_length -1 --overlap_length 128"
             - name: CLASSES
               value: "--definition --theorem --proof --example"
             - name: DO_TRAIN
