@@ -44,13 +44,13 @@ spec:
             - name: DO_TRAIN
               value: "true"
             - name: TRAIN_FLAGS
-              value: "--max_steps 2000 --crf_loss_reduction token_mean"
+              value: "--max_steps 1000 --crf_loss_reduction token_mean"
             - name: DATASET
               value: roberta-base-semitight
             - name: LEARNING_RATE
               value: "0.00014445251022763073"
             - name: BATCH_SIZE
-              value: "8"
+              value: "4"
             - name: LABEL_SMOOTHING
               value: "0.1"
             - name: WARMUP_RATIO

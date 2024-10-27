@@ -372,6 +372,8 @@ def predict(config: Config, training_args: TrainingArguments):
 if __name__ == "__main__":
     parser = HfArgumentParser([Config, TrainingArguments])  # type:ignore
     config, training_args = parser.parse_args_into_dataclasses()
+    set_seed(training_args.seed)
+    logging.info("Set seed to {training_args.seed}")
 
     if config.run_train:
         train(config, training_args)

@@ -27,6 +27,8 @@ mkdir -p "/volume/ner/outputs/$ITER_NAME"
 
 # Run training
 export WANDB_NAME="$RUN_NAME"
+export WANDB_PROJECT="semicrf-experiments"
+
 if [[ $DO_TRAIN = 'true' ]]; then
     python src/ner_training/main.py --run_train \
       --model_name_or_path FacebookAI/roberta-base \
