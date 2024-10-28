@@ -160,7 +160,8 @@ class SemiCRF(nn.Module):
                 raise ValueError("mask of the first timestep must all be on")
 
     def pool(self, seg_emissions: torch.Tensor):
-        return seg_emissions.max(dim=0).values
+        # return seg_emissions.max(dim=0).values
+        return seg_emissions.sum(dim=0)
 
     def _compute_score(
         self,
