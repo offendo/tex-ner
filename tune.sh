@@ -12,6 +12,10 @@ pip install -U .
 echo "Beginning run $RUN_NAME"
 mkdir -p "/volume/ner/outputs/$RUN_NAME"
 
+if [[ $JOB_COMPLETION_INDEX == "" ]]; then
+  JOB_COMPLETION_INDEX="0"
+fi
+
 # Run training
 export WANDB_RUN_NAME="$RUN_NAME"
 python src/ner_training/main.py --run_tune \
