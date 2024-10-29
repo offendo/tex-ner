@@ -25,7 +25,6 @@ python src/ner_training/main.py --run_tune \
   --trials 50 \
   --eval_steps 250 --eval_strategy "steps" \
   --logging_strategy "steps" --logging_steps 10 \
-  --save_strategy 'no' \
   --load_best_model_at_end True --metric_for_best_model "eval_f1" \
   --optim "adamw_hf" \
   --data_dir /volume/ner/$DATASET --output_dir /volume/ner/outputs/$RUN_NAME \
