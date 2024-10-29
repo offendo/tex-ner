@@ -14,11 +14,15 @@ mkdir -p "/volume/ner/outputs/$RUN_NAME"
 
 # Run training
 export WANDB_RUN_NAME="$RUN_NAME"
-python src/ner_training/main.py tune \
-    --model FacebookAI/roberta-base \
-    --crf \
-    --definition --theorem --proof --example \
-    --trials 30 \
-    --data_dir /volume/ner/$DATASET \
-    --output_dir /volume/ner/outputs/$RUN_NAME \
-    --crf_loss_reduction token_mean $FLAGS
+python src/ner_training/main.py --run_tune \
+  --model_name_or_path FacebookAI/roberta-base \
+  --definition --theorem --proof --example \
+  $FLAGS \
+  --trials 50 \
+  --eval_steps 250 --eval_strategy "steps" \
+  --logging_strategy "steps" --logging_steps 10 \
+  --save_strategy 'no' \
+  --load_best_model_at_end True --metric_for_best_model "eval_f1" \
+  --optim "adamw_hf" \
+  --data_dir /volume/ner/$DATASET --output_dir /volume/ner/outputs/$RUN_NAME \
+  --seed $JOB_COMPLETION_INDEX
