@@ -41,6 +41,8 @@ class SemiCRF(nn.Module):
         self.transitions = nn.Parameter(torch.empty(num_tags, num_tags))
         self.max_segment_length = max_segment_length
 
+        self.pool_projection = nn.Linear(in_features=num_tags, out_features=num_tags, bias=False)
+
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
@@ -160,8 +162,7 @@ class SemiCRF(nn.Module):
                 raise ValueError("mask of the first timestep must all be on")
 
     def pool(self, seg_emissions: torch.Tensor):
-        # return seg_emissions.max(dim=0).values
-        return seg_emissions.sum(dim=0)
+        return self.pool_projection(seg_emissions.mean(dim=0))
 
     def _compute_score(
         self,
@@ -206,8 +207,8 @@ class SemiCRF(nn.Module):
         # Start transition score and first emission
         # first segment index = 0
         bs = torch.arange(batch_size)
-        seg_emissions = emissions[:, bs, tags[0]] * (seg_nums == 0)
-        score = self.pool(seg_emissions) + self.start_transitions[tags[0]]
+        seg_emissions = emissions * (seg_nums == 0).unsqueeze(2)
+        score = self.pool(seg_emissions)[bs, tags[0]] + self.start_transitions[tags[0]]
 
         segment_mask = mask * seg_starts
         for j in range(1, seq_length):
@@ -217,8 +218,8 @@ class SemiCRF(nn.Module):
             # 2. Then add in the transition probability for moving between the previous and current segment
             # Transition score to next tag, only added if next timestep is valid (mask == 1)
             # shape: (batch_size,)
-            seg_emissions = emissions[:, bs, tags[j]] * (seg_nums == seg_idx)
-            score += (self.pool(seg_emissions) + self.transitions[tags[j - 1], tags[j]]) * segment_mask[j]
+            seg_emissions = emissions * (seg_nums == seg_idx).unsqueeze(2)
+            score += (self.pool(seg_emissions)[bs, tags[j]] + self.transitions[tags[j - 1], tags[j]]) * segment_mask[j]
 
         # Only count the idxs where the segment starts, since otherwise we'd double count
 
@@ -343,7 +344,7 @@ class SemiCRF(nn.Module):
                 # The most likely segment of length i is one of tag `indices`
                 # alpha_nxt shape: (batch_size, num_tags)
                 # indices shape: (batch_size, num_tags)
-                alpha_nxt, indices = next_score.max(dim=2)
+                alpha_nxt, indices = next_score.max(dim=1)
 
                 # shape: (batch_size, num_tags)
                 segment_score[i, :, :] = alpha_nxt
@@ -720,13 +721,14 @@ if __name__ == "__main__":
     T = len(labels)
 
     # Model
-    scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=10)
+    scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=5)
     crf = CRF(num_tags=T, batch_first=True)
 
     # # Make the weights the same so it's easy to compare values
     scrf.start_transitions = crf.start_transitions
     scrf.end_transitions = crf.end_transitions
     scrf.transitions.data = crf.transitions
+    scrf.pool_projection.weight.data = torch.eye(T)
 
     # Fake input
     emissions = torch.randn(N, B, T, dtype=torch.float32)
@@ -741,15 +743,20 @@ if __name__ == "__main__":
             score = scrf._compute_score(emissions, tags, mask.bool())
         with timer("scrf norm"):
             norm = scrf._compute_normalizer(emissions, mask.bool())
+        with timer("scrf decode"):
+            best_tags = scrf._viterbi_decode(emissions, mask.bool())
         ic(score)
         ic(norm)
+        ic(best_tags)
     if sys.argv[-1] == "crf":
         with timer("crf score"):
             score = crf._compute_score(emissions, tags * mask, mask.bool())
         with timer("crf norm"):
             norm = crf._compute_normalizer(emissions, mask.bool())
+        with timer("crf decode"):
+            best_tags = crf._viterbi_decode(emissions, mask.bool())
         ic(score)
         ic(norm)
-        # best_tags = crf._viterbi_decode(emissions, mask.bool())
+        ic(best_tags)
 
     # scalene_profiler.stop()
