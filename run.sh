@@ -21,6 +21,7 @@ if [[ $JOB_COMPLETION_INDEX != "" ]]; then
   ITER_NAME=$RUN_NAME-$JOB_COMPLETION_INDEX
 else
   ITER_NAME=$RUN_NAME
+  JOB_COMPLETION_INDEX=0
 fi
 echo "Beginning run $ITER_NAME"
 mkdir -p "/volume/ner/outputs/$ITER_NAME"
@@ -43,7 +44,8 @@ if [[ $DO_TRAIN = 'true' ]]; then
       --label_smoothing_factor $LABEL_SMOOTHING --warmup_ratio $WARMUP_RATIO --weight_decay $WEIGHT_DECAY --dropout $DROPOUT \
       --load_best_model_at_end True --metric_for_best_model "eval_f1" \
       --optim "adamw_hf" --lr_scheduler_type $SCHEDULER \
-      --data_dir /volume/ner/$DATASET --output_dir /volume/ner/outputs/$ITER_NAME
+      --data_dir /volume/ner/$DATASET --output_dir /volume/ner/outputs/$ITER_NAME \
+      --seed $JOB_COMPLETION_INDEX
   fi
 
 
