@@ -162,7 +162,8 @@ class SemiCRF(nn.Module):
                 raise ValueError("mask of the first timestep must all be on")
 
     def pool(self, seg_emissions: torch.Tensor):
-        return self.pool_projection(seg_emissions.mean(dim=0))
+        # return seg_emissions.sum(dim=0)
+        return self.pool_projection(seg_emissions.sum(dim=0))
 
     def _compute_score(
         self,
@@ -721,7 +722,7 @@ if __name__ == "__main__":
     T = len(labels)
 
     # Model
-    scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=5)
+    scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=10)
     crf = CRF(num_tags=T, batch_first=True)
 
     # # Make the weights the same so it's easy to compare values
@@ -737,7 +738,6 @@ if __name__ == "__main__":
     ic(tags)
     mask = (tags != -100).long()
 
-    # scalene_profiler.start()
     if sys.argv[-1] == "scrf":
         with timer("scrf score"):
             score = scrf._compute_score(emissions, tags, mask.bool())
@@ -747,7 +747,9 @@ if __name__ == "__main__":
             best_tags = scrf._viterbi_decode(emissions, mask.bool())
         ic(score)
         ic(norm)
+        ic((score - norm).sum() / mask.sum())
         ic(best_tags)
+
     if sys.argv[-1] == "crf":
         with timer("crf score"):
             score = crf._compute_score(emissions, tags * mask, mask.bool())
@@ -757,6 +759,5 @@ if __name__ == "__main__":
             best_tags = crf._viterbi_decode(emissions, mask.bool())
         ic(score)
         ic(norm)
+        ic((score - norm).sum() / mask.sum())
         ic(best_tags)
-
-    # scalene_profiler.stop()

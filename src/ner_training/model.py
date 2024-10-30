@@ -39,14 +39,14 @@ class BertWithCRF(PreTrainedModel):
         super().__init__(bert_config)
 
         id2label = {v: k for k, v in label2id.items()}
+        self.conf = config
         self.num_labels = len(label2id)
         self.crf_loss_reduction = config.crf_loss_reduction
         self.ctx = config.context_len
         self.overlap = config.overlap_len
-        self.logit_pooling = getattr(config, "logit_pooling", "mean")
         if config.model_debug:
-            bert_config.hidden_size = 128
-            bert_config.intermediate_size = 256
+            bert_config.hidden_size = 32
+            bert_config.intermediate_size = 64
             bert_config.num_hidden_layers = 2
             bert_config.num_attention_heads = 2
             self.bert = AutoModelForTokenClassification.from_config(bert_config)
@@ -126,21 +126,21 @@ class BertWithCRF(PreTrainedModel):
                 attention_mask=attention_mask[:, start:end],
                 labels=labels[:, start:end].contiguous() if labels is not None else None,
             )
-            if self.logit_pooling == "max":
+            if self.conf.logit_pooling == "max":
                 logits[:, start:end, :] = torch.maximum(outputs.logits, logits[:, start:end, :])
-            elif self.logit_pooling == "mean":
+            elif self.conf.logit_pooling == "mean":
                 logits[:, start:end, :] += outputs.logits
                 counts[start:end] += 1
 
         # Average them out
-        if self.logit_pooling == "mean":
+        if self.conf.logit_pooling == "mean":
             logits = logits / counts.view(1, -1, 1)
 
         loss = 0.0
         if labels is not None:
             is_pad = labels == -100
             crf_out = self.crf.forward(
-                logits,
+                logits + self.conf.temperature,
                 tags=labels.masked_fill(is_pad, 0),
                 mask=attention_mask.bool(),
                 reduction=self.crf_loss_reduction,
