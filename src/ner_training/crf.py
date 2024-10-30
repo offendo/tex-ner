@@ -41,7 +41,7 @@ class SemiCRF(nn.Module):
         self.transitions = nn.Parameter(torch.empty(num_tags, num_tags))
         self.max_segment_length = max_segment_length
 
-        self.pool_projection = nn.Linear(in_features=num_tags, out_features=num_tags, bias=False)
+        self.pool_projection = nn.Linear(in_features=num_tags, out_features=num_tags)
 
         self.reset_parameters()
 
@@ -162,8 +162,9 @@ class SemiCRF(nn.Module):
                 raise ValueError("mask of the first timestep must all be on")
 
     def pool(self, seg_emissions: torch.Tensor):
-        # return seg_emissions.sum(dim=0)
+        # assert len(seg_emissions.shape) == 3
         return self.pool_projection(seg_emissions.sum(dim=0))
+        # return seg_emissions.sum(dim=0)
 
     def _compute_score(
         self,
@@ -175,7 +176,7 @@ class SemiCRF(nn.Module):
         # tags: (seq_length, batch_size)
         # mask: (seq_length, batch_size): 1 if good, 0 if bad
         # lens: (n_segments, batch_size)
-        # seg_ids: (seq_length, batch_size) - 1 if tags[i] != tags[i-1], 0 otherwise
+        # seg_ids: (seq_length, batch_size): 1 if tags[i] != tags[i-1], 0 otherwise
         assert emissions.dim() == 3 and tags.dim() == 2
         assert emissions.shape[:2] == tags.shape
         assert emissions.size(2) == self.num_tags
@@ -256,7 +257,7 @@ class SemiCRF(nn.Module):
         # alpha[i, :, t] = score of segment ending at index i with tag t
         alpha = torch.zeros(seq_length, batch_size, self.num_tags, dtype=emissions.dtype, device=emissions.device)
 
-        alpha[0, :, :] = self.start_transitions + emissions[0]
+        alpha[0, :, :] = self.start_transitions + self.pool(emissions[0].unsqueeze(0))
 
         for j in range(1, seq_length):
             segment_score = torch.full(
@@ -313,7 +314,7 @@ class SemiCRF(nn.Module):
 
         # alpha[i, :, t] = score of segment ending at index i with tag t
         alpha = torch.zeros(seq_length, batch_size, self.num_tags, dtype=emissions.dtype, device=emissions.device)
-        alpha[0, :, :] = self.start_transitions + emissions[0]
+        alpha[0, :, :] = self.start_transitions + self.pool(emissions[0].unsqueeze(0))
 
         # tracks transitions of tags
         history = []
@@ -722,7 +723,7 @@ if __name__ == "__main__":
     T = len(labels)
 
     # Model
-    scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=10)
+    scrf = SemiCRF(num_tags=T, batch_first=True, max_segment_length=1)
     crf = CRF(num_tags=T, batch_first=True)
 
     # # Make the weights the same so it's easy to compare values
@@ -730,6 +731,7 @@ if __name__ == "__main__":
     scrf.end_transitions = crf.end_transitions
     scrf.transitions.data = crf.transitions
     scrf.pool_projection.weight.data = torch.eye(T)
+    scrf.pool_projection.bias.data = torch.zeros(T)
 
     # Fake input
     emissions = torch.randn(N, B, T, dtype=torch.float32)
