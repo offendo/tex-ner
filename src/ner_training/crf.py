@@ -28,6 +28,7 @@ class SemiCRF(nn.Module):
         batch_first: bool = False,
         padding_idx: int = -100,
         max_segment_length: int = 1,
+        use_proj: bool = False,
     ) -> None:
         # torch.autograd.set_detect_anomaly(True)
         if num_tags <= 0:
@@ -41,7 +42,10 @@ class SemiCRF(nn.Module):
         self.transitions = nn.Parameter(torch.empty(num_tags, num_tags))
         self.max_segment_length = max_segment_length
 
-        self.pool_projection = nn.Linear(in_features=num_tags, out_features=num_tags)
+        if use_proj:
+            self.pool_projection = nn.Linear(in_features=num_tags, out_features=num_tags)
+        else:
+            self.pool_projection = None
 
         self.reset_parameters()
 
@@ -161,13 +165,10 @@ class SemiCRF(nn.Module):
             if not no_empty_seq and not no_empty_seq_bf:
                 raise ValueError("mask of the first timestep must all be on")
 
-    def pool(self, seg_emissions: torch.Tensor):
-        assert len(seg_emissions.shape) == 3
-        return self.pool_projection(seg_emissions).sum(dim=0)
-        # return seg_emissions.sum(dim=0)
-
     def proj(self, seg_emissions: torch.Tensor):
-        return self.pool_projection(seg_emissions)
+        if self.pool_projection is not None:
+            return self.pool_projection(seg_emissions)
+        return seg_emissions
 
     def _compute_score(
         self,
@@ -735,8 +736,9 @@ if __name__ == "__main__":
     scrf.start_transitions = crf.start_transitions
     scrf.end_transitions = crf.end_transitions
     scrf.transitions.data = crf.transitions
-    scrf.pool_projection.weight.data = torch.eye(T)
-    scrf.pool_projection.bias.data = torch.zeros(T)
+    if scrf.pool_projection is not None:
+        scrf.pool_projection.weight.data = torch.eye(T)
+        scrf.pool_projection.bias.data = torch.zeros(T)
 
     # Fake input
     emissions = torch.randn(N, B, T, dtype=torch.float32)
