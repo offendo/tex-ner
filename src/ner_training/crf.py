@@ -162,9 +162,12 @@ class SemiCRF(nn.Module):
                 raise ValueError("mask of the first timestep must all be on")
 
     def pool(self, seg_emissions: torch.Tensor):
-        # assert len(seg_emissions.shape) == 3
-        return self.pool_projection(seg_emissions.sum(dim=0))
+        assert len(seg_emissions.shape) == 3
+        return self.pool_projection(seg_emissions).sum(dim=0)
         # return seg_emissions.sum(dim=0)
+
+    def proj(self, seg_emissions: torch.Tensor):
+        return self.pool_projection(seg_emissions)
 
     def _compute_score(
         self,
@@ -209,19 +212,21 @@ class SemiCRF(nn.Module):
         # Start transition score and first emission
         # first segment index = 0
         bs = torch.arange(batch_size)
-        seg_emissions = emissions * (seg_nums == 0).unsqueeze(2)
-        score = self.pool(seg_emissions)[bs, tags[0]] + self.start_transitions[tags[0]]
+        seg_emissions = self.proj(emissions)[:, bs, tags[0]] * (seg_nums == 0)
+        score = seg_emissions.sum(dim=0) + self.start_transitions[tags[0]]
 
         segment_mask = mask * seg_starts
         for j in range(1, seq_length):
             seg_idx = seg_nums[j]
-            # 1. Compute the emission probability of the current segment (this can be anything, right now it's the sum of first and last element)
+            # 1. Compute the emission probability of the current segment
             # shape: (batch_size, num_tags)
+            seg_emissions = self.proj(emissions)[:, bs, tags[j]] * (seg_nums == seg_idx)
+            score += seg_emissions.sum(dim=0) * segment_mask[j]
+
             # 2. Then add in the transition probability for moving between the previous and current segment
             # Transition score to next tag, only added if next timestep is valid (mask == 1)
             # shape: (batch_size,)
-            seg_emissions = emissions * (seg_nums == seg_idx).unsqueeze(2)
-            score += (self.pool(seg_emissions)[bs, tags[j]] + self.transitions[tags[j - 1], tags[j]]) * segment_mask[j]
+            score += self.transitions[tags[j - 1], tags[j]] * segment_mask[j]
 
         # Only count the idxs where the segment starts, since otherwise we'd double count
 
@@ -257,7 +262,7 @@ class SemiCRF(nn.Module):
         # alpha[i, :, t] = score of segment ending at index i with tag t
         alpha = torch.zeros(seq_length, batch_size, self.num_tags, dtype=emissions.dtype, device=emissions.device)
 
-        alpha[0, :, :] = self.start_transitions + self.pool(emissions[0].unsqueeze(0))
+        alpha[0, :, :] = self.start_transitions + self.proj(emissions[0])
 
         for j in range(1, seq_length):
             segment_score = torch.full(
@@ -276,7 +281,7 @@ class SemiCRF(nn.Module):
 
                 # Emission score for the segment of length i, starting at j-i and ending at j (i.e., j+1 non-inclusive)
                 # shape: (batch_size, 1, num_tags)
-                broadcast_emissions = self.pool(emissions[j - i : j + 1]).unsqueeze(1)
+                broadcast_emissions = self.proj(emissions[j - i : j + 1]).sum(dim=0).unsqueeze(1)
 
                 # Next score is the previous score + transition between previous and current segment + score of current segment
                 # shape: (batch_size, num_tags, num_tags)
@@ -314,7 +319,7 @@ class SemiCRF(nn.Module):
 
         # alpha[i, :, t] = score of segment ending at index i with tag t
         alpha = torch.zeros(seq_length, batch_size, self.num_tags, dtype=emissions.dtype, device=emissions.device)
-        alpha[0, :, :] = self.start_transitions + self.pool(emissions[0].unsqueeze(0))
+        alpha[0, :, :] = self.start_transitions + self.proj(emissions)[0]
 
         # tracks transitions of tags
         history = []
@@ -337,7 +342,7 @@ class SemiCRF(nn.Module):
 
                 # Emission score for the segment of length i, starting at j-i and ending at j (i.e., j+1 non-inclusive)
                 # shape: (batch_size, 1, num_tags)
-                broadcast_emissions = self.pool(emissions[j - i : j + 1]).unsqueeze(1)
+                broadcast_emissions = self.proj(emissions)[j - i : j + 1].sum(dim=0).unsqueeze(1)
 
                 # Next score is the previous score + transition between previous and current segment + score of current segment
                 # shape: (batch_size, num_tags, num_tags)

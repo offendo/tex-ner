@@ -220,7 +220,7 @@ def load_file(
 
     # Split it up into context-window sized chunks (for training)
     if context_len > 0:
-        if overlap_len <= 0:
+        if overlap_len <= 0 or overlap_len >= context_len:
             overlap_len = context_len
 
         sub_examples = []
