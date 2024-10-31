@@ -34,23 +34,23 @@ spec:
           image: ghcr.io/offendo/ner:latest
           env:
             - name: RUN_NAME
-              value: semicrf-full-documents
+              value: semicrf-new-data
             - name: PREDICT_ON_TRAIN
               value: "--predict_on_train"
             - name: CRF
-              value: "--crf_segment_length 16 --data_context_length -1 --overlap_length 128"
+              value: "--crf_segment_length 16"
             - name: CLASSES
-              value: "--definition --theorem --proof --example"
+              value: "--definition --theorem --proof --example --use_preset"
             - name: DO_TRAIN
               value: "true"
             - name: TRAIN_FLAGS
-              value: "--max_steps 1000 --crf_loss_reduction token_mean"
+              value: "--max_steps 3000 --crf_loss_reduction token_mean"
             - name: DATASET
-              value: roberta-base-semitight
+              value: roberta-base-new-data
             - name: LEARNING_RATE
               value: "0.00014445251022763073"
             - name: BATCH_SIZE
-              value: "4"
+              value: "8"
             - name: LABEL_SMOOTHING
               value: "0.1"
             - name: WARMUP_RATIO

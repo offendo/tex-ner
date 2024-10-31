@@ -43,7 +43,20 @@ def create_multiclass_labels(
     name: bool = False,
     reference: bool = False,
     add_prefix: bool = False,
+    use_preset: bool = False,
 ):
+    if use_preset:
+        preset = [
+            "O",
+            "definition",
+            "theorem",
+            "proof",
+            "example",
+            "definition-theorem",
+            "definition-example",
+            "proof-theorem",
+        ]
+        return {k: v for v, k in enumerate(sorted(preset))}
     class_names = tuple(
         k
         for k, v in dict(
@@ -79,7 +92,27 @@ def convert_label_to_idx(tags: list[str], label2id: dict[str, int]):
     filtered_tags = sorted([t for t in tags if t in label2id])
     if len(filtered_tags) == 0:
         return label2id["O"]
-    return label2id["-".join(filtered_tags)]
+    idx = label2id.get("-".join(filtered_tags), None)
+    if idx is not None:
+        return idx
+
+    # Now we start searching by priority
+    if "definition" in filtered_tags:
+        if "theorem" in filtered_tags:
+            return label2id["definition-theorem"]
+        if "example" in filtered_tags:
+            return label2id["definition-example"]
+        return label2id["definition"]
+    if "theorem" in filtered_tags:
+        if "proof" in filtered_tags:
+            return label2id["theorem-proof"]
+        return label2id["theorem"]
+    if "proof" in filtered_tags:
+        return label2id["proof"]
+    if "example" in filtered_tags:
+        return label2id["example"]
+
+    raise NotImplementedError(f"Failed conversion for {tags=} {filtered_tags=} and {label2id=}")
 
 
 def align_annotations_to_tokens(tokens: BatchEncoding, char_tags: list[str]) -> list[list[str]]:

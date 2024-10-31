@@ -227,8 +227,10 @@ def load_file(
         input_ids = windowed(tokens.input_ids, n=context_len, step=overlap_len, fillvalue=tokenizer.pad_token_id)
         labels = windowed(tokens.labels, n=context_len, step=overlap_len, fillvalue=PAD_TOKEN_ID)
         mask = windowed(tokens.attention_mask, n=context_len, step=overlap_len, fillvalue=0)
+
         for lab, ids, m in zip(labels, input_ids, mask):
-            sub_examples.append(dict(labels=lab, input_ids=ids, attention_mask=m))
+            numel = sum(m)
+            sub_examples.append(dict(labels=lab[:numel], input_ids=ids[:numel], attention_mask=m[:numel]))
 
         return sub_examples
 

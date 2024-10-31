@@ -21,6 +21,7 @@ class Config:
     proof: bool = field(default=False, metadata={"help": "predict proofs"})
     name: bool = field(default=False, metadata={"help": "predict names"})
     reference: bool = field(default=False, metadata={"help": "predict references"})
+    use_preset: bool = field(default=False, metadata={"help": "use preset label2id"})
 
     # Data processing
     data_context_len: int = field(default=512, metadata={"help": "context length for data"})

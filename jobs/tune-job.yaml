@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-tune-filtered-data
+  name: nilay-ner-tune
 spec:
   template:
     spec:
@@ -17,6 +17,7 @@ spec:
                       - NVIDIA-A100-80GB-PCIe
                       - NVIDIA-A100-80GB-PCIe
                       - NVIDIA-GeForce-RTX-3090
+                      - NVIDIA-GeForce-RTX-4090
       imagePullSecrets:
         - name: nilay-ghcr-key
       containers:
@@ -26,11 +27,11 @@ spec:
           workingDir: /app/tex-ner
           env:
             - name: RUN_NAME
-              value: tune-filtered-data
+              value: tune-semicrf-new-data
             - name: DATASET
-              value: roberta-base-filtered-nilay
+              value: roberta-base-new-data
             - name: FLAGS
-              value: ""
+              value: "--crf_segment_length 16"
           volumeMounts:
             - name: git-repo
               mountPath: /app
