@@ -476,6 +476,7 @@ def load_dataset(config: Config):
         example=config.example,
         name=config.name,
         reference=config.reference,
+        use_preset=config.use_preset,
     )
     if config.k_fold > 1 and config.fold > 0:
         fold_data = load_data_with_kfold(
