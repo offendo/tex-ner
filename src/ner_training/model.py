@@ -30,6 +30,7 @@ class BertWithCRF(PreTrainedModel):
             example=config.example,
             name=config.name,
             reference=config.reference,
+            use_preset=config.use_preset,
         )
         bert_config = AutoConfig.from_pretrained(
             config.model_name_or_path,

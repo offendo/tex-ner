@@ -58,6 +58,7 @@ class TrainingObject:
             example=config.example,
             name=config.name,
             reference=config.reference,
+            use_preset=config.use_preset,
         )
         model = load_model(config)
         # Data loading
@@ -214,11 +215,11 @@ def test(config: Config, training_args: TrainingArguments):
     # Run eval on 'test' and 'val'
     for split in ["test", "val"] + (["train"] if config.predict_on_train else []):
         if isinstance(model, StackedBertWithCRF) or (hasattr(model, "crf") and model.crf is None):
-            logits, labels, metrics = trainer.predict(dataset[split])  # type:ignore
+            logits, labels, metrics = trainer.predict(dataset[split], metric_key_prefix=split)  # type:ignore
             preds = np.argmax(logits, axis=-1)
             logging.info(pformat(metrics))
         else:
-            (logits, preds), labels, metrics = trainer.predict(dataset[split])  # type:ignore
+            (logits, preds), labels, metrics = trainer.predict(dataset[split], metric_key_prefix=split)  # type:ignore
             # preds = np.argmax(logits, axis=-1)
             logging.info(pformat(metrics))
 
@@ -243,6 +244,7 @@ def tune(config: Config, training_args: TrainingArguments):
         example=config.example,
         name=config.name,
         reference=config.reference,
+        use_preset=config.use_preset,
     )
     # Data loading
     dataset = load_dataset(config)
