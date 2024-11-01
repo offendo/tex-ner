@@ -13,7 +13,7 @@ import ray
 import torch
 from datasets import Dataset, DatasetDict
 from icecream import ic
-from sklearn.metrics import precision_recall_fscore_support
+from sklearn.metrics import classification_report, precision_recall_fscore_support
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, EvalPrediction, HfArgumentParser, Trainer, TrainingArguments, set_seed
@@ -109,6 +109,9 @@ def load_model(config: Config):
             model.load_state_dict(state_dict)
             logging.info(f"Loaded checkpoint for base model from {Path(config.checkpoint, 'model.safetensors')}")
 
+    if config.lora:
+        pass
+
     # Freeze BERT if needed
     if config.freeze_base:
         if hasattr(model.bert, "roberta"):
@@ -167,6 +170,7 @@ def make_compute_metrics(label2id):
         else:
             p, r, f, _ = precision_recall_fscore_support(ls, ps, average="micro", labels=classes)
             bp, br, bf, _ = precision_recall_fscore_support(ls, bps, average="micro", labels=classes)
+            print(classification_report(ls, ps, labels=classes))
         return dict(precision=p, recall=r, f1=f, bert_precision=bp, bert_recall=br, bert_f1=bf)
 
     return compute_metrics

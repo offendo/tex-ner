@@ -4,44 +4,16 @@ import json
 import logging
 import math
 import os
-import random
 from pathlib import Path
-from pprint import pformat
-from typing import Callable, Iterable, Optional
-from dataclasses import dataclass, field
 
-import click
-import evaluate
-import numpy as np
 import pandas as pd
-import ray
-import torch
-import torch.nn as nn
-import wandb
 from datasets import Dataset, DatasetDict
-from more_itertools import chunked, flatten, windowed
-from sklearn.metrics import precision_recall_fscore_support
-from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.utils.class_weight import compute_class_weight
-from torchcrf import CRF
+from more_itertools import windowed
 from tqdm import tqdm
-from transformers import (
-    AutoConfig,
-    AutoModel,
-    AutoModelForTokenClassification,
-    AutoTokenizer,
-    DataCollatorForTokenClassification,
-    EvalPrediction,
-    PretrainedConfig,
-    PreTrainedTokenizer,
-    Trainer,
-    TrainingArguments,
-    BatchEncoding,
-)
-from transformers.modeling_outputs import TokenClassifierOutput
+from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from ner_training.config import Config
-from ner_training.utils import create_name_or_ref_tags, PAD_TOKEN_ID, convert_label_to_idx, create_multiclass_labels
+from ner_training.utils import PAD_TOKEN_ID, convert_label_to_idx, create_multiclass_labels, create_name_or_ref_tags
 
 
 def load_mmd_file_for_prediction(

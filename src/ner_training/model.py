@@ -7,7 +7,13 @@ from typing import Optional
 import torch
 import torch.nn as nn
 from more_itertools import windowed
-from transformers import AutoConfig, AutoModelForTokenClassification, PreTrainedModel, PretrainedConfig
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoModelForTokenClassification,
+    PreTrainedModel,
+    PretrainedConfig,
+)
 from transformers.modeling_outputs import TokenClassifierOutput
 from torch.nn.utils.rnn import pad_sequence
 
@@ -19,6 +25,85 @@ from ner_training.config import Config
 @dataclass
 class CRFOutput(TokenClassifierOutput):
     predictions: torch.Tensor | None = None
+
+
+class LLM(PreTrainedModel):
+    def __init__(self, config: Config):
+        label2id = create_multiclass_labels(
+            definition=config.definition,
+            theorem=config.theorem,
+            proof=config.proof,
+            example=config.example,
+            name=config.name,
+            reference=config.reference,
+            use_preset=config.use_preset,
+        )
+        llm_config = AutoConfig.from_pretrained(
+            config.model_name_or_path,
+            num_labels=len(label2id),
+        )
+        super().__init__(llm_config)
+
+        id2label = {v: k for k, v in label2id.items()}
+        self.conf = config
+        self.num_labels = len(label2id)
+        self.ctx = config.context_len
+        self.overlap = config.overlap_len
+        self.loss_fn = nn.CrossEntropyLoss(ignore_index=PAD_TOKEN_ID)
+        if self.conf.model_debug:
+            llm_config.hidden_size = 64
+            llm_config.intermediate_size = 128
+            llm_config.num_hidden_layers = 4
+            llm_config.num_attention_heads = 2
+            llm = AutoModelForCausalLM.from_config(llm_config)
+            self.llm = llm.base_model
+            self.head = nn.Linear(llm_config.hidden_dim, self.num_labels)
+        else:
+            llm = AutoModelForCausalLM.from_pretrained(
+                config.model_name_or_path,
+                num_labels=self.num_labels,
+                label2id=label2id,
+                id2label=id2label,
+                hidden_dropout_prob=config.dropout,
+            )
+            self.llm = llm.base_model
+            self.head = nn.Linear(llm_config.hidden_dim, self.num_labels)
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ):
+        llm_output = self.llm(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            labels=labels,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        logits = self.head(llm_output.last_hidden_state)
+        loss = None
+        if labels is not None:
+            loss = self.loss_fn(logits.view(-1, self.num_tags), labels.view(-1))
+        return CRFOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=llm_output.hidden_states,
+            attentions=llm_output.attentions,
+        )
 
 
 class BertWithCRF(PreTrainedModel):
@@ -46,9 +131,9 @@ class BertWithCRF(PreTrainedModel):
         self.ctx = config.context_len
         self.overlap = config.overlap_len
         if config.model_debug:
-            bert_config.hidden_size = 32
-            bert_config.intermediate_size = 64
-            bert_config.num_hidden_layers = 2
+            bert_config.hidden_size = 64
+            bert_config.intermediate_size = 128
+            bert_config.num_hidden_layers = 4
             bert_config.num_attention_heads = 2
             self.bert = AutoModelForTokenClassification.from_config(bert_config)
         else:

@@ -345,28 +345,30 @@ class SemiCRF(nn.Module):
 
                 # Emission score for the segment of length i, starting at j-i and ending at j (i.e., j+1 non-inclusive)
                 # shape: (batch_size, 1, num_tags)
-                broadcast_emissions = emissions[j - i : j + 1].sum(dim=0).unsqueeze(1)
+                broadcast_emissions = emissions[j - i : j + 1].sum(dim=0)
 
                 # Next score is the previous score + transition between previous and current segment + score of current segment
                 # shape: (batch_size, num_tags, num_tags)
-                next_score = broadcast_score + self.transitions + broadcast_emissions
+                # next_score = broadcast_score + self.transitions + broadcast_emissions
+                next_score = broadcast_score + self.transitions
 
                 # The most likely segment of length i is one of tag `indices`
                 # alpha_nxt shape: (batch_size, num_tags)
                 # indices shape: (batch_size, num_tags)
-                alpha_nxt, indices = next_score.max(dim=1)
+                vit_max, vit_argmax = next_score.max(dim=1)
+                vit_nxt = vit_max + broadcast_emissions
 
                 # shape: (batch_size, num_tags)
-                segment_score[i, :, :] = alpha_nxt
-                segment_indices[i, :, :] = indices
+                segment_score[i, :, :] = vit_nxt
+                segment_indices[i, :, :] = vit_argmax
 
             # What's the best score at this index? (max/argmax segment_score over segment length)
             # seg_max shape: (batch_size, num_tags)
             # seg_argmax shape: (batch_size, num_tags)
             seg_max, seg_argmax = segment_score.max(dim=0)
             alpha[j, :, :] = torch.where(mask[j].unsqueeze(1), seg_max, alpha[j - 1])
-            indices = torch.gather(segment_indices, 0, seg_argmax.unsqueeze(0)).squeeze(0)
-            history.append(indices)
+            vit_argmax = torch.gather(segment_indices, 0, seg_argmax.unsqueeze(0)).squeeze(0)
+            history.append(vit_argmax)
 
         # End transition score
         # shape: (batch_size, num_tags)
@@ -762,20 +764,20 @@ if __name__ == "__main__":
         scrf.pool_projection.bias.data = torch.zeros(T)
 
     # Fake input
-    # emissions = torch.randn(N, B, T, dtype=torch.float32)
-    # tags = torch.randint(0, T, (N, B))
-    # tags[N - 3 :, 1] = -100
-    tags = torch.tensor([0, 1, 2, 2, 1, 1, 0]).unsqueeze(1)
-    emissions = [
-        [0.1, 0.1, 0.6],
-        [-0.2, 0.3, 0.4],
-        [0.0, -0.8, 0.2],
-        [0.2, 0.0, 0.3],
-        [0.4, 0.1, -0.1],
-        [-0.1, 0.2, -0.9],
-        [-0.2, 0.1, -1.0],
-    ]
-    emissions = torch.tensor(emissions).view(N, B, T)
+    emissions = torch.randn(N, B, T, dtype=torch.float32)
+    tags = torch.randint(0, T, (N, B))
+    tags[N - 3 :, 1] = -100
+    # tags = torch.tensor([0, 1, 2, 2, 1, 1, 0]).unsqueeze(1)
+    # emissions = [
+    #     [0.1, 0.1, 0.6],
+    #     [-0.2, 0.3, 0.4],
+    #     [0.0, -0.8, 0.2],
+    #     [0.2, 0.0, 0.3],
+    #     [0.4, 0.1, -0.1],
+    #     [-0.1, 0.2, -0.9],
+    #     [-0.2, 0.1, -1.0],
+    # ]
+    # emissions = torch.tensor(emissions).view(N, B, T)
     ic(tags)
     ic(emissions)
     mask = (tags != -100).long()

@@ -51,6 +51,7 @@ class Config:
     freeze_base_after_steps: int = field(default=-1, metadata={"help": "freeze base after k training steps"})
     randomize_last_layer: bool = field(default=False, metadata={"help": "randomize last bert layer weights"})
     model_debug: bool = field(default=False, metadata={"help": "toggle debug mode"})
+    lora: bool = field(default=False, metadata={"help": "toggle lora training mode"})
 
     # Checkpoint
     checkpoint: str | None = field(default=None, metadata={"help": "pretrained checkpoint to load"})
