@@ -42,9 +42,12 @@ length = df['end'].max()
 chunk = 100_000
 n_chunks = math.ceil(length / chunk)
 
-for n in tqdm(range(n_chunks), total=n_chunks):
-  chunk_data = df[(df['end'] >= chunk * n) & (df['end'] < chunk * (n+1))]
-  resp = r.post(f"https://annotate.nilay.page/api/predictions?fileid=$FILEID&savename=ai-test-preds-chunk-{n}", json={'annotations': chunk_data.to_dict()})
+if n_chunks == 1:
+    resp = r.post(f"https://annotate.nilay.page/api/predictions?fileid=$FILEID&savename=ai-test-preds", json={'annotations': df.to_dict()})
+else:
+    for n in tqdm(range(n_chunks), total=n_chunks):
+        chunk_data = df[(df['end'] >= chunk * n) & (df['end'] < chunk * (n+1))]
+        resp = r.post(f"https://annotate.nilay.page/api/predictions?fileid=$FILEID&savename=ai-test-preds-chunk-{n}", json={'annotations': chunk_data.to_dict()})
 
 EOF
 python /dev/fd/3
