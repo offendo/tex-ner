@@ -8,7 +8,7 @@ spec:
   containers:
     - name: pod
       image: ubuntu:latest
-      command: ["sleep", "21600"] # 6 hours - max pod time
+      command: ["sleep", "20000"] # 6 hours - max pod time
       workingDir: /
       volumeMounts:
         - name: nilay-data-volume-rwm-east

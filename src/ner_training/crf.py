@@ -291,9 +291,10 @@ class SemiCRF(nn.Module):
                 # shape: (batch_size, num_tags, num_tags)
                 next_score = broadcast_score + self.transitions + broadcast_emissions
 
-                # Logsumexp over all possible segment lengths, which gets the overall score of the current tag being
+                # Logsumexp over all possible previous tags, so now we have the sum probability of a segment of length i+1 of tag t
                 segment_score[i, :, :] = torch.logsumexp(next_score, dim=1)  # shape: (batch_size, num_tags)
-            # Now, logsumexp over the previous tags (dim 0) to get the scores for each of the current tags (dim 2)
+
+            # Now, logsumexp over all segment lengths (dim 0) to get the scores for the current tag being t
             alpha_nxt = torch.logsumexp(segment_score, dim=0)  #  shape: (batch_size, num_tags)
             alpha[j] = torch.where(mask[j].unsqueeze(1), alpha_nxt, alpha[j - 1])
 
@@ -328,15 +329,12 @@ class SemiCRF(nn.Module):
         history = []
 
         for j in range(1, seq_length):
-            segment_shape = (min(self.max_segment_length, j + 1), batch_size, self.num_tags)
+            segment_shape = (min(self.max_segment_length, j), batch_size, self.num_tags)
             segment_score = torch.zeros(*segment_shape, dtype=emissions.dtype, device=emissions.device)
             segment_indices = torch.full(
                 segment_shape, fill_value=self.padding_idx, dtype=torch.long, device=emissions.device
             )
-            for i in range(self.max_segment_length):
-                if i > j:
-                    break
-
+            for i in range(min(self.max_segment_length, j)):
                 # Dynamic programming: Case i indicates a segment of length i ending at the current timestep j
 
                 # Score up to the start of this segment:
@@ -352,12 +350,11 @@ class SemiCRF(nn.Module):
                 # next_score = broadcast_score + self.transitions + broadcast_emissions
                 next_score = broadcast_score + self.transitions
 
-                # The most likely segment of length i is one of tag `indices`
-                # alpha_nxt shape: (batch_size, num_tags)
-                # indices shape: (batch_size, num_tags)
+                # Get the most likely previous tag (dim=1), and the current tag is that one + emissions
                 vit_max, vit_argmax = next_score.max(dim=1)
                 vit_nxt = vit_max + broadcast_emissions
 
+                # The segment of length i+1's
                 # shape: (batch_size, num_tags)
                 segment_score[i, :, :] = vit_nxt
                 segment_indices[i, :, :] = vit_argmax

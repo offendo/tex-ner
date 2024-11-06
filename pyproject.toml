@@ -25,6 +25,8 @@ dependencies = [
     "peft>=0.13.2",
     "bitsandbytes>=0.42.0",
     "transformers==4.41.0",
+    "openai>=1.53.0",
+    "tiktoken>=0.8.0",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
@@ -36,7 +38,7 @@ build-backend = "hatchling.build"
 [tool.rye]
 managed = true
 dev-dependencies = [
-    "black>=24.4.2",
+    "black[jupyter]>=24.10.0",
     "isort>=5.13.2",
     "jupyter>=1.0.0",
     "scalene>=1.5.45",

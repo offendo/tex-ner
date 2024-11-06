@@ -1,0 +1,38 @@
+{
+        "type": "json_schema",
+        "json_schema": {
+            "name": "entity_extraction_response",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "definition": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "theorem": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "example": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "proof": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": ["definition", "theorem", "example", "proof"],
+                "additionalProperties": false
+            },
+            "strict": true
+        }
+    }
