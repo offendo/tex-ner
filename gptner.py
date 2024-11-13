@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 import openai
 import pandas as pd
 import tiktoken
+from pathlib import Path
 from more_itertools import chunked
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
 from tqdm import tqdm
@@ -63,13 +64,13 @@ def format_input(prompt, instruction, system):
     ]
 
 
-def complete(mmd: str, model: str, max_len: int):
+def complete(mmd: str, model: str, max_len: int, no_pbar: bool = False):
     preds = []
 
     tokens = tokenizer.encode(mmd)
     n_chunks = len(tokens) // max_len
     logging.info(f"Working in {n_chunks} chunks")
-    for snippet in tqdm(chunked(tokens, n=max_len), total=n_chunks):
+    for snippet in tqdm(chunked(tokens, n=max_len), total=n_chunks, disable=no_pbar):
         snippet_text = tokenizer.decode(snippet)
         messages = format_input(snippet_text, INST, SYST)
         completion = client.chat.completions.create(
@@ -97,31 +98,52 @@ def complete(mmd: str, model: str, max_len: int):
 
 if __name__ == "__main__":
     parser = ArgumentParser("gpt-ner")
-    parser.add_argument("--file", "-f", required=True)
-    parser.add_argument("--output", "-o", required=True)
-    parser.add_argument("--model", "-m", type=str, default="ft:gpt-4o-mini-2024-07-18:uc-santa-cruz-jlab-nlp::AQ2BxcPd")
-    parser.add_argument("--max_len", "-l", type=int, default=512)
+    parser.add_argument("--file", "-f", required=False)
+    parser.add_argument("--filelist", "-l",  required=False)
+    parser.add_argument("--output_dir", "-o", required=True)
+    parser.add_argument("--model", "-m", type=str, required=True)
+    parser.add_argument("--max_len", "-k", type=int, required=True)
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--no_pbar", "-p", action="store_true")
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING)
 
-    with open(args.file, "r") as f:
-        mmd = f.read()
-        tokens = tokenizer.encode(mmd)
-        logging.info(f"Read input from {args.file}: {len(mmd)} characters/{len(tokens)} tokens.")
-        est_in = (len(tokens) / 1_000_000) * 0.150
-        est_out = (len(tokens) / 1_000_000) * 0.600
-        logging.info(f"Estimated price: ${est_in + est_out:0.2f}")
+    if args.filelist:
+        with open(args.filelist, 'r') as f:
+            files = [l.strip() for l in f.readlines()]
+    elif args.file:
+        files = [args.file]
+    else:
+        raise ValueError("Required at least one of --file and --list")
 
-    df = complete(mmd, model=args.model, max_len=args.max_len)
-    logging.info(f"Finished generating, got {len(df)} annotations.")
+    total_price = 0
+    mmds = {}
+    for fname in files:
+        with open(fname, "r") as f:
+            mmd = f.read()
+            tokens = tokenizer.encode(mmd)
+            logging.info(f"Read input from {fname}: {len(mmd)} characters/{len(tokens)} tokens.")
+            est_in = (len(tokens) / 1_000_000) * 0.150
+            est_out = (len(tokens) / 1_000_000) * 0.600
+            logging.info(f"Estimated price: ${est_in + est_out:0.2f}")
+            total_price += est_in + est_out
+            mmds[fname] = mmd
+    answer = input(f"Total estimated price: ${total_price:0.2f}. Is this ok? [y/N]")
+    if answer not in {'y', 'Y'}:
+        exit(0)
 
-    df = df[df["start"] != -1]
-    logging.info(f"Dropped rows whose start location went unfound, left with {len(df)} annotations.")
+    Path(args.output_dir).mkdir(exist_ok=True, parents=True)
+    for fname, mmd in mmds.items():
+        df = complete(mmd, model=args.model, max_len=args.max_len, no_pbar=args.no_pbar)
+        logging.info(f"Finished generating for {fname}, got {len(df)} annotations.")
 
-    df = merge_neighbors(df.sort_values(["tag", "start"]))  # type:ignore
-    logging.info(f"Merged neighbors, left with {len(df)} annotations.")
+        df = df[df["start"] != -1]
+        logging.info(f"Dropped rows whose start location went unfound, left with {len(df)} annotations.")
 
-    df.to_json(args.output)
-    logging.info(f"Saved to {args.output}")
+        df = merge_neighbors(df.sort_values(["tag", "start"]))  # type:ignore
+        logging.info(f"Merged neighbors, left with {len(df)} annotations.")
+
+        outfile = Path(args.output_dir, fname.replace('.mmd', '.annos.json'))
+        df.to_json(outfile)
+        logging.info(f"Saved to {outfile}")

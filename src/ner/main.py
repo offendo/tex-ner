@@ -18,12 +18,12 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, EvalPrediction, HfArgumentParser, Trainer, TrainingArguments, set_seed
 
-from ner_training.collator import DataCollatorForTokenClassification
-from ner_training.config import Config
-from ner_training.data import load_dataset
-from ner_training.model import BertWithCRF, StackedBertWithCRF
-from ner_training.trainer import CRFTrainer
-from ner_training.utils import *
+from ner.collator import DataCollatorForTokenClassification
+from ner.config import Config
+from ner.data import load_dataset
+from ner.model import BertWithCRF, StackedBertWithCRF
+from ner.trainer import CRFTrainer
+from ner.utils import *
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 

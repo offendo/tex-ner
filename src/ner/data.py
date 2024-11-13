@@ -12,8 +12,8 @@ from more_itertools import windowed
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
-from ner_training.config import Config
-from ner_training.utils import PAD_TOKEN_ID, convert_label_to_idx, create_multiclass_labels, create_name_or_ref_tags
+from ner.config import Config
+from ner.utils import PAD_TOKEN_ID, convert_label_to_idx, create_multiclass_labels, create_name_or_ref_tags
 
 
 def load_mmd_file_for_prediction(

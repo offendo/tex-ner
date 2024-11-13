@@ -18,7 +18,7 @@ fi
 
 # Run training
 export WANDB_RUN_NAME="$RUN_NAME"
-python src/ner_training/main.py --run_tune \
+python src/ner/main.py --run_tune \
   --model_name_or_path FacebookAI/roberta-base \
   --definition --theorem --proof --example \
   $FLAGS \

@@ -9,7 +9,7 @@ mkdir -p "/volume/ner/outputs/$RUN_NAME"
 
 # Run testing
 export WANDB_RUN_NAME="$RUN_NAME"
-python src/ner_training/main.py test \
+python src/ner/main.py test \
     --model FacebookAI/roberta-base \
     --crf \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \

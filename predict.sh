@@ -11,7 +11,7 @@ echo "Beginning run $RUN_NAME, saving to $OUTPUT_NAME"
 mkdir -p "/volume/ner/outputs/mmds-$OUTPUT_NAME/"
 
 # Run testing
-python src/ner_training/main.py predict \
+python src/ner/main.py predict \
     --model FacebookAI/roberta-base \
     --crf \
     --checkpoint /volume/ner/outputs/$RUN_NAME/checkpoint-best \

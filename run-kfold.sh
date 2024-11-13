@@ -28,7 +28,7 @@ for ((i=0; i<$KFOLDS; i++)); do
   export WANDB_RUN_NAME="$RUN_NAME"
   (if [[ $DO_TRAIN = 'true' || $ONLY_TRAIN_FOLD = $i ]]; then
 
-    CUDA_VISIBLE_DEVICES=$i python src/ner_training/main.py train \
+    CUDA_VISIBLE_DEVICES=$i python src/ner/main.py train \
       --model FacebookAI/roberta-base \
       $CRF \
       $CLASSES \
@@ -47,7 +47,7 @@ for ((i=0; i<$KFOLDS; i++)); do
   fi
 
   # Run testing
-  CUDA_VISIBLE_DEVICES=$i python src/ner_training/main.py test \
+  CUDA_VISIBLE_DEVICES=$i python src/ner/main.py test \
       --model FacebookAI/roberta-base \
       $CRF \
       --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-best \

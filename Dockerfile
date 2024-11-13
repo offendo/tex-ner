@@ -15,4 +15,4 @@ RUN pip install -U uv \
 COPY . .
 RUN pip install .
 
-CMD ["python", "src/ner_training/main.py", "train", "--model", "roberta-base-cased", "--definition", "--theorem", "--proof", "--example", "--data_dir", "/volume/data/ner/", "--output_dir", "runs/"]
+CMD ["python", "src/ner/main.py", "train", "--model", "roberta-base-cased", "--definition", "--theorem", "--proof", "--example", "--data_dir", "/volume/data/ner/", "--output_dir", "runs/"]

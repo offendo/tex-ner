@@ -31,7 +31,7 @@ export WANDB_NAME="$RUN_NAME"
 export WANDB_PROJECT="semicrf-experiments"
 
 if [[ $DO_TRAIN = 'true' ]]; then
-    python src/ner_training/main.py --run_train \
+    python src/ner/main.py --run_train \
       --model_name_or_path FacebookAI/roberta-base \
       $CRF \
       $CLASSES \
@@ -52,7 +52,7 @@ if [[ $DO_TRAIN = 'true' ]]; then
 
 # Run testing
 if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-avg ]; then
-  python src/ner_training/main.py --run_test \
+  python src/ner/main.py --run_test \
       --model_name_or_path FacebookAI/roberta-base \
       $CRF \
       --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-avg \
@@ -63,7 +63,7 @@ if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-avg ]; then
 fi
 
 if [ -d /volume/ner/outputs/$ITER_NAME/checkpoint-best ]; then
-  python src/ner_training/main.py --run_test \
+  python src/ner/main.py --run_test \
       --model_name_or_path FacebookAI/roberta-base \
       $CRF \
       --checkpoint /volume/ner/outputs/$ITER_NAME/checkpoint-best \

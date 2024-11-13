@@ -1,19 +1,9 @@
 #!/usr/bin/env python3
 import logging
-import os
-from pathlib import Path
-from pprint import pformat
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
-import click
-import evaluate
-import numpy as np
-import pandas as pd
-import ray
 import torch
 import torch.nn as nn
 from transformers import Trainer
-from ner_training.utils import *
 
 
 class CRFTrainer(Trainer):

@@ -17,9 +17,9 @@ from transformers import (
 from transformers.modeling_outputs import TokenClassifierOutput
 from torch.nn.utils.rnn import pad_sequence
 
-from ner_training.crf import CRF, SemiCRF
-from ner_training.utils import PAD_TOKEN_ID, create_multiclass_labels
-from ner_training.config import Config
+from ner.crf import CRF, SemiCRF
+from ner.utils import PAD_TOKEN_ID, create_multiclass_labels
+from ner.config import Config
 
 
 @dataclass
