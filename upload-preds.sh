@@ -33,13 +33,14 @@ import requests as r
 import json
 import math
 import pandas as pd
+import os
 from tqdm import tqdm
 
 data = json.loads('''$DATA''')
 df = pd.DataFrame.from_dict(data)
 
 length = df['end'].max()
-chunk = 100_000
+chunk = int(os.environ.get("CHUNK_SIZE", length))
 n_chunks = math.ceil(length / chunk)
 
 if n_chunks == 1:

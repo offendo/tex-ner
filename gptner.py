@@ -108,7 +108,11 @@ if __name__ == "__main__":
 
     with open(args.file, "r") as f:
         mmd = f.read()
-        logging.info(f"Read input from {args.file}: {len(mmd)} characters/{len(mmd.split())} words.")
+        tokens = tokenizer.encode(mmd)
+        logging.info(f"Read input from {args.file}: {len(mmd)} characters/{len(tokens)} tokens.")
+        est_in = (len(tokens) / 1_000_000) * 0.150
+        est_out = (len(tokens) / 1_000_000) * 0.600
+        logging.info(f"Estimated price: ${est_in + est_out:0.2f}")
 
     df = complete(mmd, model=args.model, max_len=args.max_len)
     logging.info(f"Finished generating, got {len(df)} annotations.")
