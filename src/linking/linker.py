@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import IO, Any, Callable
 import logging
 from pathlib import Path
+import uuid
 import json
 import pandas as pd
 import click
@@ -18,6 +19,21 @@ class Link:
     source: str  # annoid of source
     target: str  # annoid of target
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]):
+        return cls(
+            start=d["start"],
+            end=d["end"],
+            tag=d["tag"],
+            fileid=d["fileid"],
+            source=d["source"],
+            target=d["target"],
+            color=d.get("color", "#dedede"),
+        )
+
+    def to_json(self):
+        return self.__dict__
+
 
 @dataclass
 class Annotation:
@@ -31,13 +47,25 @@ class Annotation:
     links: list[Link]
 
     @classmethod
-    def from_dict(cls, json: dict[str, Any]):
-        links = [Link(**l) for l in json["links"]]
-        return cls(**{k: v for k, v in json.items() if k != "links"}, links=links)
+    def from_dict(cls, fileid: str, jsonl: dict[str, Any]):
+        links = [Link.from_dict(l) for l in jsonl.get("links", [])]
+        default = {}
+        default["color"] = "#dedede"
+        default["fileid"] = fileid
+        default["text"] = jsonl["text"]
+        default["tag"] = jsonl["tag"]
+        default["start"] = int(jsonl["start"])  # type:ignore
+        default["end"] = int(jsonl["end"])  # type:ignore
+        default["links"] = links
+        default["annoid"] = str(uuid.uuid4())
+        return cls(**default)
 
     @classmethod
-    def from_records(cls, json: list[dict[str, Any]]):
-        return [Annotation.from_dict(j) for j in json]
+    def from_records(cls, fileid: str, jsonl: list[dict[str, Any]]):
+        return [Annotation.from_dict(fileid, j) for j in jsonl]
+
+    def to_json(self):
+        return self.__dict__
 
 
 def toggle_link(src: Annotation, tgt: Annotation, force_enable: bool = False):
@@ -111,6 +139,7 @@ class AutoLinker:
                 did_link = rule(anno, rest)
                 if did_link:
                     break
+        return annotations
 
     @rule("link_name_to_outside")
     @staticmethod
@@ -170,18 +199,17 @@ class AutoLinker:
 
 
 @click.command("link")
-@click.option("--file", type=click.File("r"))
-@click.option("--key", type=str, default=None)
-@click.option("--output", type=click.Path(writable=True))
-def cli(file: IO, key: str | None, output: Path):
+@click.option("--file", type=click.File("r"), required=True)
+@click.option("--id", type=str, required=True)
+@click.option("--output", type=click.Path(writable=True), required=True)
+def cli(file: IO, id: str, output: Path):
     linker = AutoLinker()
-    annos = json.load(file)
-    if key is not None:
-        annos = annos[key]
-
-    linker.link(Annotation.from_records(annos))
+    records = []
+    for line in file:
+        records.append(json.loads(line.strip()))
+    annos = linker.link(Annotation.from_records(id, records))
     with open(output, "w") as f:
-        json.dump(annos, f)
+        json.dump([a.to_json() for a in annos], f)
 
 
 if __name__ == "__main__":

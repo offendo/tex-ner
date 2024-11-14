@@ -48,7 +48,7 @@ dev-dependencies = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ner"]
+packages = ["src/ner", "src/linking"]
 
 [tool.black]
 line-length = 120
