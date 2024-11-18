@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import IO, Any, Callable
 import logging
 from pathlib import Path
+import copy
 import uuid
 import json
 import pandas as pd
@@ -47,11 +48,11 @@ class Annotation:
     links: list[Link]
 
     @classmethod
-    def from_dict(cls, fileid: str, jsonl: dict[str, Any]):
-        links = [Link.from_dict(l) for l in jsonl.get("links", [])]
+    def from_dict(cls, jsonl: dict[str, Any] | pd.Series):
+        links = [Link.from_dict(l) for l in jsonl["links"]]
         default = {}
         default["color"] = "#dedede"
-        default["fileid"] = fileid
+        default["fileid"] = jsonl["fileid"]
         default["text"] = jsonl["text"]
         default["tag"] = jsonl["tag"]
         default["start"] = int(jsonl["start"])  # type:ignore
@@ -61,11 +62,19 @@ class Annotation:
         return cls(**default)
 
     @classmethod
-    def from_records(cls, fileid: str, jsonl: list[dict[str, Any]]):
-        return [Annotation.from_dict(fileid, j) for j in jsonl]
+    def from_file(cls, file: str | Path):
+        df = pd.read_json(file)
+        fileid = Path(file).with_suffix("").stem
+        if "links" not in df.columns:
+            df["links"] = [[] for _ in df.iterrows()]
+        df["fileid"] = fileid
+        return df.apply(cls.from_dict, axis=1).to_list()
 
     def to_json(self):
-        return self.__dict__
+        links = [l.to_json() for l in self.links]
+        res = self.__dict__
+        res["links"] = links
+        return res
 
 
 def toggle_link(src: Annotation, tgt: Annotation, force_enable: bool = False):
@@ -81,17 +90,18 @@ def toggle_link(src: Annotation, tgt: Annotation, force_enable: bool = False):
 
     # If we're forcing an addition and it's not already in there, add it
     if force_enable and link not in src.links:
-        src.links.append(link)
-        return src.links
+        src.links = [*src.links, link]
+        return src
     # If we're forcing an addition but it's already in there, just return
     elif force_enable:
-        return src.links
+        return src
     # Otherwise, remove it and return
     elif link not in src.links:
-        return src.links
+        src.links = [*src.links, link]
+        return src
     else:
         src.links.remove(link)
-        return src.links
+        return src
 
 
 def match_name(name: str, ref: str):
@@ -134,22 +144,23 @@ class AutoLinker:
 
     def link(self, annotations: list[Annotation]):
         for idx, anno in enumerate(annotations):
-            rest = annotations[:idx] + annotations[idx + 1 :]
             for rule in self.rules.values():
-                did_link = rule(anno, rest)
-                if did_link:
+                did_link = rule(anno, idx, annotations)
+                if int(did_link) > 0:
                     break
         return annotations
 
     @rule("link_name_to_outside")
     @staticmethod
-    def link_name_to_outside(name: Annotation, annotations: list[Annotation]):
+    def link_name_to_outside(name: Annotation, idx: int, annotations: list[Annotation]):
         if name.tag != "name":
             return False
 
         # Check to see if `name` is inside any annotation
         target = None
         for guess in annotations:
+            if guess == name:
+                continue
             if guess.tag not in {"definition", "theorem", "example"}:
                 continue
             elif target == None or (target.end - target.start) > (guess.end - guess.start):
@@ -157,7 +168,7 @@ class AutoLinker:
 
         # If we found one (or if we found multiple, the shortest one), then link it
         if target is not None:
-            toggle_link(name, target, force_enable=True)
+            annotations[idx] = toggle_link(name, target, force_enable=True)
             return True
 
         # Otherwise give up
@@ -165,7 +176,7 @@ class AutoLinker:
 
     @rule("link_ref_to_outside")
     @staticmethod
-    def link_ref_to_name(ref: Annotation, annotations: list[Annotation]):
+    def link_ref_to_name(ref: Annotation, idx: int, annotations: list[Annotation]):
         if ref.tag != "reference":
             return False
 
@@ -173,41 +184,40 @@ class AutoLinker:
         total = 0
         for token in ref.text.split(" "):
             matches = filter(
-                lambda name: match_name(name.text, token) and name.end < ref.start,
+                lambda name: match_name(name.text, token)
+                and name.end < ref.start
+                and name.tag == "name"
+                and name != ref,
                 annotations,
             )
             matches = sorted(matches, key=lambda anno: -anno.start)
 
             # if we find a match, link to the most recent one (reverse sorted by start index)
             if len(matches) > 0:
-                toggle_link(ref, matches[0], force_enable=True)
+                annotations[idx] = toggle_link(ref, matches[0], force_enable=True)
                 total += 1
         return total
 
     @rule("link_proof_to_theorem")
     @staticmethod
-    def link_proof_to_theorem(proof: Annotation, annotations: list[Annotation]):
+    def link_proof_to_theorem(proof: Annotation, idx: int, annotations: list[Annotation]):
         candidates = filter(
-            lambda anno: anno.tag == "theorem" and (anno.end - proof.start) <= 250,
+            lambda anno: anno.tag == "theorem" and abs(anno.end - proof.start) <= 250 and anno != proof,
             annotations,
         )
         candidates = sorted(candidates, key=lambda x: -x.start)
         if len(candidates) > 0:
-            toggle_link(proof, candidates[0])
+            annotations[idx] = toggle_link(proof, candidates[0])
             return True
         return False
 
 
 @click.command("link")
-@click.option("--file", type=click.File("r"), required=True)
-@click.option("--id", type=str, required=True)
+@click.option("--file", type=click.Path(exists=True, dir_okay=False), required=True)
 @click.option("--output", type=click.Path(writable=True), required=True)
-def cli(file: IO, id: str, output: Path):
+def cli(file: str, output: Path):
     linker = AutoLinker()
-    records = []
-    for line in file:
-        records.append(json.loads(line.strip()))
-    annos = linker.link(Annotation.from_records(id, records))
+    annos = linker.link(Annotation.from_file(file))
     with open(output, "w") as f:
         json.dump([a.to_json() for a in annos], f)
 
