@@ -49,6 +49,21 @@ USAGE:
     options:
       -h, --help       show this help message and exit
       --output OUTPUT  Path to output file
+
+=======================================================
+
+NAME:
+  postprocess
+DESCRIPTION:
+  Postprocess Batch API completion job, and save the output annotations
+USAGE:
+  texner postprocess [-h] --predictions PREDICTIONS (--file FILE | --filelist FILELIST) --output OUTPUT
+    options:
+      -h, --help                 show this help message and exit
+      --file FILE                Path to input file (if only processing one)
+      --filelist FILELIST        Path to a file containing a list of input files
+      --predictions PREDICTIONS  Path to input file (if only processing one)
+      --output OUTPUT            Path to output file
 """
 
 import json
@@ -125,7 +140,8 @@ def merge_neighbors(df: pd.DataFrame) -> pd.DataFrame:
             idx += 1
             end = nxt.end
             text += nxt.text
-        item = dict(tag=row.tag, text=text, start=start, end=end)
+        item = row.to_dict()
+        item.update(dict(tag=row.tag, text=text, start=start, end=end))
         new.append(item)
         idx += 1
 
@@ -352,6 +368,9 @@ def process(mmds: dict[str, tuple[str, list[int]]], model: str, max_len: int, ou
         df = merge_neighbors(df.sort_values(["tag", "start"]))  # type:ignore
         logger.info(f"Merged neighbors, left with {len(df)} annotations.")
 
+        df = df[df["text"].apply(len) <= 40]
+        logger.info(f"Dropped items which were too short (<40 char)")
+
         outfile = Path(output_dir, Path(name).with_suffix(".annos.json").name)
         df.to_json(outfile)
         logger.info(f"Saved to {outfile}")
@@ -376,11 +395,13 @@ def monitor(job_id: str, output_dir: Path) -> pd.DataFrame:
     job_info = client.batches.retrieve(job_id)
     job_status = job_info.status
 
+    # Wait for the job to actually start, so we can get an accurate total
     logger.info("Waiting for batch to start...")
     while job_status != "in_progress":
         time.sleep(5)
     logger.info("Starting!")
 
+    # Wait until the job is complete, and update the progress bar to match
     pbar = tqdm(range(job_info.request_counts.total), total=job_info.request_counts.total)
     while job_status not in ["completed", "expired", "cancelled", "failed"]:
         job_info = client.batches.retrieve(job_id)
@@ -403,15 +424,77 @@ def monitor(job_id: str, output_dir: Path) -> pd.DataFrame:
     outfile = Path(output_dir, job_info.output_file_id).with_suffix(".jsonl")
     df.to_json(outfile, lines=True, orient="records")
     logger.info(f"Saved to {outfile}")
+
     return df
+
+
+def postprocess(path: Path | str, mmds: dict[str, tuple[str, list[int]]], output_dir: Path | str):
+    def tryloads(j):
+        try:
+            return json.loads(j)
+        except json.JSONDecodeError as e:
+            return None
+
+    # Read in the predicted annotations
+    df = pd.read_json(path, lines=True)
+    logger.info(f"Read {len(df)} predictions from {path}")
+
+    # Process the request object to extract predictiosn
+    df["preds"] = df.response.apply(lambda x: x["body"]["choices"][0]["message"]["content"]).apply(tryloads)
+    df = df.dropna(subset=["preds"])
+    file_id_and_range = df.custom_id.str.split(r"\.mmd\.")
+    df["file_id"] = file_id_and_range.apply(lambda x: x[0] + ".mmd")
+    df["file_start"] = file_id_and_range.apply(lambda x: int(x[1].split("-")[0]))
+    df["file_end"] = file_id_and_range.apply(lambda x: int(x[1].split("-")[1]))
+    logger.info(f"Split Custom IDs into file ID and range")
+
+    # Hunt for the annotations in the actual text so we can get their start/end indices
+    annos = []
+    for i, row in df.iterrows():
+        file_id = row.file_id
+        # fs = row.file_start
+        # fe = row.file_end
+
+        # Grab the content and the relevant tokens, then detokenize
+        content, tokens = mmds[file_id]
+        # snippet_text = tokenizer.decode(tokens[fs : fe + 1])
+        # file_offset = len(tokenizer.decode(tokens[:fs]))
+        # Hunt for the output annotation in the input snippet, and add the chunk offset to get the real start index
+        for tag, texts in row.preds.items():
+            for t in texts:
+                # start = snippet_text.find(t) + file_offset
+                start = content.find(t)
+                end = start + len(t)
+                if start == -1:
+                    end = -1
+                annos.append(dict(file_id=file_id, tag=tag, text=t, start=start, end=end))
+
+    anno_df = pd.DataFrame.from_records(annos)
+    anno_df = anno_df[anno_df["start"] != -1]
+    logger.info(f"Dropped rows whose start location went unfound, left with {len(anno_df)} annotations.")
+
+    for file_id in anno_df.file_id.unique():
+        file_annos = anno_df[anno_df["file_id"] == file_id]
+        logger.info(f"For {file_id} we have {len(file_annos)} annotations")
+
+        file_annos = merge_neighbors(file_annos.sort_values(["tag", "start"]))  # type:ignore
+        logger.info(f"Merged neighbors, left with {len(file_annos)}")
+
+        file_annos = file_annos[file_annos["text"].apply(len) >= 40]
+        logger.info(f"Dropped items which were too short (<40 char), left with {len(file_annos)}")
+
+        outfile = Path(output_dir, Path(file_id).with_suffix(".annos.json").name)
+        file_annos.to_json(outfile)
+        logger.info(f"Saved {len(file_annos)} annotations to {outfile}")
 
 
 if __name__ == "__main__":
 
     # fmt:off
     parser = ArgumentParser("texner")
-    parser.usage = __doc__
-    subparsers = parser.add_subparsers(help='command', dest='command')
+    parser.add_argument( '--log_level',default='warning', help='Provide logging level. Example --loglevel debug, default=warning' )
+
+    subparsers = parser.add_subparsers(help='command', dest='command', required=True)
 
     # Launch job and get results in real-time
     process_parser = subparsers.add_parser('process')
@@ -437,12 +520,22 @@ if __name__ == "__main__":
     monitor_parser = subparsers.add_parser('monitor')
     monitor_parser.add_argument("job_id", type=str, help="If provided, don't launch any jobs, but just monitor the provided batched job ID")
     monitor_parser.add_argument("--output", required=True, help="Path to output file")
+
+    # Postprocess job
+    postprocess_parser = subparsers.add_parser('postprocess')
+    postprocess_input = postprocess_parser.add_mutually_exclusive_group(required=True)
+    postprocess_input.add_argument("--file", help="Path to input file (if only processing one)")
+    postprocess_input.add_argument("--filelist", help="Path to a file containing a list of input files")
+
+    postprocess_parser.add_argument("--predictions", required=True, help="Path to predictions file")
+    postprocess_parser.add_argument("--output", required=True, help="Path to output directory")
     # fmt:on
 
     args = parser.parse_args()
 
     client = openai.OpenAI()
     tokenizer = tiktoken.encoding_for_model("gpt-4o-mini-2024-07-18")
+    logging.basicConfig(level=args.log_level.upper())
     logger = logging.getLogger(__name__)
 
     # Enable logging to proper level
@@ -475,3 +568,16 @@ if __name__ == "__main__":
                 outputs = process(mmds, model=args.model, max_len=args.max_len, output_dir=args.output)
         case "monitor":
             monitor(args.job_id, args.output)
+        case "postprocess":
+            # Get the input file name(s) and tokenize them
+            files = [l.strip() for l in open(args.filelist, "r").readlines()] if args.filelist else [args.file]
+            # mmds = tokenize_files(files)
+            mmds = {}
+            for fname in files:
+                with open(fname, "r") as f:
+                    mmd = f.read()
+                    mmds[fname] = (mmd, None)
+
+            # Ensure the output directory exists
+            Path(args.output).parent.mkdir(exist_ok=True, parents=True)
+            postprocess(args.predictions, mmds, args.output)

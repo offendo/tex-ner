@@ -44,6 +44,9 @@ dev-dependencies = [
     "scalene>=1.5.45",
 ]
 
+[tool.rye.scripts]
+texner = { cmd = "python gptner.py" }
+
 [tool.hatch.metadata]
 allow-direct-references = true
 
