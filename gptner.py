@@ -15,7 +15,7 @@ USAGE:
       -h, --help           show this help message and exit
       --file FILE          Path to input file (if only processing one)
       --filelist FILELIST  Path to a file containing a list of input files
-      --output OUTPUT      Path to output file
+      --output OUTPUT      Path to output directory
       --model MODEL        Model ID to use
       --max_len MAX_LEN    Max input tokens per request
 
@@ -31,7 +31,23 @@ USAGE:
       -h, --help           show this help message and exit
       --file FILE          Path to input file (if only processing one)
       --filelist FILELIST  Path to a file containing a list of input files
-      --output OUTPUT      Path to output file
+      --output OUTPUT      Path to output directory
+      --model MODEL        Model ID to use
+      --max_len MAX_LEN    Max input tokens per request
+
+=======================================================
+
+NAME:
+  add_names
+DESCRIPTION:
+  Launch completion job for name/refs using Batch API (half price, async, 24h max turnaround time)
+USAGE:
+  texner add_names [-h] (--file FILE | --filelist FILELIST) --output OUTPUT --model MODEL --max_len MAX_LEN
+    options:
+      -h, --help           show this help message and exit
+      --file FILE          Path to input file (if only processing one) (should be an annos.json)
+      --filelist FILELIST  Path to a file containing a list of input files (annos.json)
+      --output OUTPUT      Path to output directory
       --model MODEL        Model ID to use
       --max_len MAX_LEN    Max input tokens per request
 
@@ -48,7 +64,7 @@ USAGE:
 
     options:
       -h, --help       show this help message and exit
-      --output OUTPUT  Path to output file
+      --output OUTPUT  Path to output directory
 
 =======================================================
 
@@ -63,7 +79,7 @@ USAGE:
       --file FILE                Path to input file (if only processing one)
       --filelist FILELIST        Path to a file containing a list of input files
       --predictions PREDICTIONS  Path to input file (if only processing one)
-      --output OUTPUT            Path to output file
+      --output OUTPUT            Path to output directory
 """
 
 import json
@@ -71,19 +87,19 @@ import logging
 import os
 import tempfile
 import time
+from icecream import ic
 from argparse import ArgumentParser
 from pathlib import Path
+from typing import Any
 
 import openai
-from openai.types import Batch
 import pandas as pd
 import tiktoken
 from more_itertools import chunked
-from openai.types.chat import (
-    ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-)
+from openai.types import Batch
+from openai.types.chat import (ChatCompletionMessageParam,
+                               ChatCompletionSystemMessageParam,
+                               ChatCompletionUserMessageParam)
 from tqdm import tqdm
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -99,6 +115,8 @@ INST = """In the following LaTeX document, extract entities of the following typ
 4. example
 Your output should be a single JSON with 4 keys corresponding to the 4 entity types above. Spans may be part of multiple entities. Do not hallucinate text.
 """
+
+INST_NAME = "In the following LaTeX snippet, extract every newly defined named entity (name) and reference to previously defined named entity (reference). Your output should be in XML."
 
 # This is a response schema which forces a particular JSON output:
 # https://platform.openai.com/docs/guides/structured-outputs#how-to-use
@@ -147,6 +165,24 @@ def merge_neighbors(df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(new)
 
+def load_anno_files(files: list[str]) -> dict[str, list]:
+    """Tokenizes files and returns dictionary of name --> examples
+
+    Parameters
+    ----------
+    files : list[str]
+        Input files to tokenize
+
+    Returns
+    -------
+    dict[str, dict]
+        Mapping of name to list of examples to process
+    """
+    mmds = {}
+    for fname in files:
+        df = pd.read_json(fname)
+        mmds[fname] = df[df.tag.isin({'theorem', 'definition'})].to_dict(orient='records')
+    return mmds
 
 def tokenize_files(files: list[str]) -> dict[str, tuple[str, list[int]]]:
     """Tokenizes files and returns dictionary of name --> (contents, tokens)
@@ -193,6 +229,52 @@ def format_input(input_text: str, instruction: str, system: str) -> list[ChatCom
         ChatCompletionUserMessageParam(role="user", content=instruction + "\n\n" + input_text),
     ]
 
+def format_add_names_request(examples: list[dict], model: str, max_len: int, file_id: str) -> list[dict[str, Any]]:
+    """Create batch request which processes `tokens` in chunks of `max_len`
+
+    Parameters
+    ----------
+    tokens : list
+        List of tokens to process
+    model : str
+        Model ID to use (e.g., a fine-tuned model or `gpt-4o-mini`)
+    max_len : int
+        Max input tokens to process per request
+    file_id : str
+        Custom ID prefix for request. Each request will have an id in the format
+        `{file_id}.{start}-{end}` where start/end are the indices of a chunk to process.
+
+    Examples
+    --------
+    >>> example = "Definition 4.1.2: An abelian group is a group with a commutative binary operation."
+    >>> requests = format_add_names_request([example], 'gpt-4o-mini', 1024, "math_doc_example")
+    """
+
+    requests = []
+    added = {}
+    for example in examples:
+        text = example['text']
+        tag = example['tag']
+        start = example['start']
+        end = example['end']
+        if (start,end) in added:
+            continue
+        added[(start,end)] = text, tag
+        if len(text) < 40:
+            continue
+        trunc = tokenizer.decode(tokenizer.encode(text)[:max_len])
+        messages = format_input(trunc, INST_NAME, SYST)
+        body = dict(
+            model=model,
+            messages=messages,
+        )
+        requests.append(dict(
+            custom_id=f"{file_id}.{start}-{end}",
+            method="POST",
+            url="/v1/chat/completions",
+            body=body,
+        ))
+    return requests
 
 def format_batch_request(tokens: list, model: str, max_len: int, file_id: str) -> list[dict[str, str]]:
     """Create batch request which processes `tokens` in chunks of `max_len`
@@ -249,7 +331,7 @@ def batch_process(mmds: dict[str, tuple[str, list[int]]], model: str, max_len: i
     max_len : int
         Max input tokens per request
     output_dir : Path
-        Path to save output file
+        Path to save output directory
 
     Returns
     -------
@@ -278,6 +360,47 @@ def batch_process(mmds: dict[str, tuple[str, list[int]]], model: str, max_len: i
     )
     return monitor(job_info.id, output_dir)
 
+def batch_process_add_names(annos: dict[str, list], model: str, max_len: int, output_dir: Path) -> pd.DataFrame:
+    """Launches a job to process `requests` via the Batch API
+
+    Parameters
+    ----------
+    annos : dict[str, list]
+        Dict from name to example records
+    model : str
+        Model ID to use (e.g., a fine-tuned model or `gpt-4o-mini`)
+    max_len : int
+        Max input tokens per request
+    output_dir : Path
+        Path to save output directory
+
+    Returns
+    -------
+    pd.DataFrame
+        Processed output (see OpenAI batch API response docs)
+
+    Examples
+    --------
+    >>> annos = load_anno_files(input_files)
+    >>> df = batch_process_add_names(annos, model='gpt-4o-mini', max_len=1024, output_dir=Path('./outputs'))
+    """
+
+    requests = []
+    for name, examples in annos.items():
+        reqs = format_add_names_request(examples, model=model, max_len=max_len, file_id=name)
+        requests.extend(reqs)
+
+    for chunk in chunked(requests, n=50_000):
+        with tempfile.NamedTemporaryFile("w+", suffix=".jsonl") as nt:
+            pd.DataFrame.from_records(chunk).to_json(nt.name, orient="records", lines=True)
+            batch_input_file = client.files.create(file=Path(nt.name), purpose="batch")
+        job_info = client.batches.create(
+            input_file_id=batch_input_file.id,
+            endpoint="/v1/chat/completions",
+            completion_window="24h",
+            metadata={"description": "Adding names to previously classified objects"},
+        )
+    return monitor(job_info.id, output_dir) # type:ignore
 
 def process_file(tokens: list, model: str, max_len: int) -> pd.DataFrame:
     """Process a single file
@@ -346,7 +469,7 @@ def process(mmds: dict[str, tuple[str, list[int]]], model: str, max_len: int, ou
     max_len : int
         Max input tokens per request
     output_dir : Path
-        Path to save output file
+        Path to save output directory
 
     Returns
     -------
@@ -384,7 +507,7 @@ def monitor(job_id: str, output_dir: Path) -> pd.DataFrame:
     job_id : str
         ID of job to monitor
     output_dir : Path
-        Directory to save output file (in jsonl)
+        Directory to save output directory (in jsonl)
 
     Returns
     -------
@@ -397,8 +520,13 @@ def monitor(job_id: str, output_dir: Path) -> pd.DataFrame:
 
     # Wait for the job to actually start, so we can get an accurate total
     logger.info("Waiting for batch to start...")
-    while job_status != "in_progress":
+    while job_status not in {"in_progress", "cancelled", "failed"}:
         time.sleep(5)
+        job_info = client.batches.retrieve(job_id)
+        job_status = job_info.status
+    if job_status in {"cancelled", "failed"}:
+        logger.error(f"Failed job! Check dashboard for information on {job_id}")
+        exit(1)
     logger.info("Starting!")
 
     # Wait until the job is complete, and update the progress bar to match
@@ -502,7 +630,7 @@ if __name__ == "__main__":
     process_input.add_argument("--file", help="Path to input file (if only processing one)")
     process_input.add_argument("--filelist", help="Path to a file containing a list of input files")
 
-    process_parser.add_argument("--output", required=True, help="Path to output file")
+    process_parser.add_argument("--output", required=True, help="Path to output directory")
     process_parser.add_argument("--model", type=str, required=True, help="Model ID to use")
     process_parser.add_argument("--max_len", type=int, required=True, help="Max input tokens per request")
 
@@ -512,14 +640,24 @@ if __name__ == "__main__":
     batch_input.add_argument("--file", help="Path to input file (if only processing one)")
     batch_input.add_argument("--filelist", help="Path to a file containing a list of input files")
 
-    batch_parser.add_argument("--output", required=True, help="Path to output file")
+    batch_parser.add_argument("--output", required=True, help="Path to output directory")
     batch_parser.add_argument("--model", type=str, required=True, help="Model ID to use")
     batch_parser.add_argument("--max_len", type=int, required=True, help="Max input tokens per request")
+
+    # Add names to existing predictions
+    add_names_parser = subparsers.add_parser('add_names')
+    add_names_input = add_names_parser.add_mutually_exclusive_group(required=True)
+    add_names_input.add_argument("--file", help="Path to input .annos.json file (if only processing one)")
+    add_names_input.add_argument("--filelist", help="Path to a file containing a list of input .annos.json files")
+
+    add_names_parser.add_argument("--output", required=True, help="Path to output directory")
+    add_names_parser.add_argument("--model", type=str, required=True, help="Model ID to use")
+    add_names_parser.add_argument("--max_len", type=int, required=True, help="Max input tokens per request")
 
     # Monitor job
     monitor_parser = subparsers.add_parser('monitor')
     monitor_parser.add_argument("job_id", type=str, help="If provided, don't launch any jobs, but just monitor the provided batched job ID")
-    monitor_parser.add_argument("--output", required=True, help="Path to output file")
+    monitor_parser.add_argument("--output", required=True, help="Path to output directory")
 
     # Postprocess job
     postprocess_parser = subparsers.add_parser('postprocess')
@@ -566,6 +704,11 @@ if __name__ == "__main__":
                 outputs = batch_process(mmds, model=args.model, max_len=args.max_len, output_dir=args.output)
             else:  # args.command == "process":
                 outputs = process(mmds, model=args.model, max_len=args.max_len, output_dir=args.output)
+        case "add_names":
+            files = [l.strip() for l in open(args.filelist, "r").readlines()] if args.filelist else [args.file]
+            annos = load_anno_files(files)
+            Path(args.output).parent.mkdir(exist_ok=True, parents=True)
+            outputs = batch_process_add_names(annos, model=args.model, max_len=args.max_len, output_dir=args.output)
         case "monitor":
             monitor(args.job_id, args.output)
         case "postprocess":
