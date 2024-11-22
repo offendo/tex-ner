@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from dataclasses import dataclass
 from typing import IO, Any, Callable
-import logging
 from pathlib import Path
+from numpy import who
+from tqdm import tqdm
+import logging
 import copy
 import uuid
 import json
@@ -67,7 +69,8 @@ class Annotation:
         fileid = Path(file).with_suffix("").stem
         if "links" not in df.columns:
             df["links"] = [[] for _ in df.iterrows()]
-        df["fileid"] = fileid
+        if "fileid" not in df.columns:
+            df["fileid"] = fileid
         return df.apply(cls.from_dict, axis=1).to_list()
 
     def to_json(self):
@@ -142,17 +145,20 @@ class AutoLinker:
     rules: dict[str, Callable] = {}
     rule = make_rule_decorator(rules)
 
-    def link(self, annotations: list[Annotation]):
-        for idx, anno in enumerate(annotations):
+    def link(self, annotations: list[Annotation], tags: list[str] | None):
+        self.names = [anno for anno in annotations if anno.tag == "name"]
+        for idx, anno in enumerate(tqdm(annotations)):
+            if tags is not None and anno.tag not in tags:
+                continue
             for rule in self.rules.values():
-                did_link = rule(anno, idx, annotations)
+                did_link = rule(anno, idx, annotations, names=self.names)
                 if int(did_link) > 0:
                     break
         return annotations
 
     @rule("link_name_to_outside")
     @staticmethod
-    def link_name_to_outside(name: Annotation, idx: int, annotations: list[Annotation]):
+    def link_name_to_outside(name: Annotation, idx: int, annotations: list[Annotation], *args, **kwargs):
         if name.tag != "name":
             return False
 
@@ -176,7 +182,9 @@ class AutoLinker:
 
     @rule("link_ref_to_outside")
     @staticmethod
-    def link_ref_to_name(ref: Annotation, idx: int, annotations: list[Annotation]):
+    def link_ref_to_name(
+        ref: Annotation, idx: int, annotations: list[Annotation], names: list[Annotation], *args, **kwargs
+    ):
         if ref.tag != "reference":
             return False
 
@@ -184,23 +192,24 @@ class AutoLinker:
         total = 0
         for token in ref.text.split(" "):
             matches = filter(
-                lambda name: match_name(name.text, token)
-                and name.end < ref.start
-                and name.tag == "name"
+                lambda name: name.tag == "name"
+                and (name.end < ref.start or name.fileid != ref.fileid)
+                and match_name(name.text, token)
                 and name != ref,
-                annotations,
+                names,
             )
-            matches = sorted(matches, key=lambda anno: -anno.start)
+            # Sort same fileid first
+            matches = sorted(matches, key=lambda anno: (anno.fileid == ref.fileid, -anno.start))
 
             # if we find a match, link to the most recent one (reverse sorted by start index)
-            if len(matches) > 0:
-                annotations[idx] = toggle_link(ref, matches[0], force_enable=True)
+            for match in matches[:5]:
+                annotations[idx] = toggle_link(ref, match, force_enable=True)
                 total += 1
         return total
 
     @rule("link_proof_to_theorem")
     @staticmethod
-    def link_proof_to_theorem(proof: Annotation, idx: int, annotations: list[Annotation]):
+    def link_proof_to_theorem(proof: Annotation, idx: int, annotations: list[Annotation], *args, **kwargs):
         candidates = filter(
             lambda anno: anno.tag == "theorem" and abs(anno.end - proof.start) <= 250 and anno != proof,
             annotations,
@@ -215,11 +224,13 @@ class AutoLinker:
 @click.command("link")
 @click.option("--file", type=click.Path(exists=True, dir_okay=False), required=True)
 @click.option("--output", type=click.Path(writable=True), required=True)
-def cli(file: str, output: Path):
+@click.option("--tag", type=str, multiple=True, default=None)
+def cli(file: str, output: Path, tag: list[str] | None):
     linker = AutoLinker()
-    annos = linker.link(Annotation.from_file(file))
-    with open(output, "w") as f:
-        json.dump([a.to_json() for a in annos], f)
+    annos = linker.link(Annotation.from_file(file), tags=tag)
+    linked = pd.DataFrame.from_records([a.to_json() for a in annos])
+    out_name = Path(file).with_suffix(".linked.json").name
+    linked.to_json(Path(output, out_name))
 
 
 if __name__ == "__main__":

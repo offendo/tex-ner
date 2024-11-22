@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nilay-ner-train-name-ref
+  name: nilay-ner-predict-mmds
 spec:
   template:
     spec:
@@ -23,33 +23,15 @@ spec:
         - name: trainer
           image: ghcr.io/offendo/ner:latest
           env:
-            - name: RUN_NAME
-              value: name-and-ref
-            - name: CRF
-              value: "--crf_segment_length 1"
-            - name: CLASSES
-              value: "--name --reference -n name -n reference"
-            - name: DO_TRAIN
-              value: "true"
-            - name: TRAIN_FLAGS
-              value: "--steps 1948 --checkpoint /volume/ner/outputs/name-only-fixed-crf-take3/checkpoint-best"
             - name: DATASET
-              value: roberta-base-refs
-            - name: LEARNING_RATE
-              value: "5e-5"
-            - name: BATCH_SIZE
-              value: "16"
-            - name: LABEL_SMOOTHING
-              value: "0.1"
-            - name: WARMUP_RATIO
-              value: "0.05"
-            - name: DROPOUT
-              value: "0.0"
-            - name: WEIGHT_DECAY
-              value: "0.0001"
-            - name: SCHEDULER
-              value: "inverse_sqrt"
-          command: ["bash", "run.sh"]
+              value: gpt-base-predictions
+            - name: OUTPUT_NAME
+              value: name-and-ref-predictions
+            - name: RUN_NAME
+              value: name-and-ref-fixed-crf-finetune
+            - name: CLASSES
+              value: "--definition --theorem --proof --example"
+          command: ["bash", "predict.sh"]
           workingDir: /app/tex-ner
           volumeMounts:
             - name: git-repo
@@ -60,12 +42,12 @@ spec:
               mountPath: /etc/api-tokens
           resources:
             limits:
-              memory: 64Gi
+              memory: 128Gi
               cpu: 2
               nvidia.com/gpu: 1
               ephemeral-storage: 100Gi
             requests:
-              memory: 64Gi
+              memory: 128Gi
               cpu: 2
               nvidia.com/gpu: 1
               ephemeral-storage: 100Gi

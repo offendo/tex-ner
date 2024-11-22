@@ -87,6 +87,7 @@ import logging
 import os
 import tempfile
 import time
+import re
 from icecream import ic
 from argparse import ArgumentParser
 from pathlib import Path
@@ -520,7 +521,7 @@ def monitor(job_id: str, output_dir: Path) -> pd.DataFrame:
 
     # Wait for the job to actually start, so we can get an accurate total
     logger.info("Waiting for batch to start...")
-    while job_status not in {"in_progress", "cancelled", "failed"}:
+    while job_status not in {"in_progress", "cancelled", "failed", "expired", "completed", "finalizing"}:
         time.sleep(5)
         job_info = client.batches.retrieve(job_id)
         job_status = job_info.status
@@ -555,6 +556,72 @@ def monitor(job_id: str, output_dir: Path) -> pd.DataFrame:
 
     return df
 
+def extract_annos_from_xml(xml):
+    pattern = r"<name>(?P<name>.*?)</name>|<reference>(?P<reference>.*?)</reference>"
+    offset = 0
+    # [(start, end, item), ...]
+    tags = []
+    for item in re.finditer(pattern, xml):
+        if item.group("name") is not None:
+            start = item.start() - offset
+            end = start + len(item.group("name"))
+            entity = item.group("name")
+            tag = "name"
+            offset += (item.end() - item.start()) - len(item.group("name"))
+            tags.append(dict(start=start,end=end,tag=tag,text=entity))
+        elif item.group("reference") is not None:
+            start = item.start() - offset
+            end = start + len(item.group("reference"))
+            entity = item.group("reference")
+            tag = "reference"
+            offset += (item.end() - item.start()) - len(item.group("reference"))
+            tags.append(dict(start=start,end=end,tag=tag,text=entity))
+    return tags
+
+def postprocess_names(path: Path | str, mmds: dict[str, list[dict]], output_dir: Path | str):
+    # Read in the predicted annotations
+    df = pd.read_json(path, lines=True)
+    logger.info(f"Read {len(df)} predictions from {path}")
+
+    # Process the request object to extract predictiosn
+    df["preds"] = df.response.apply(lambda x: x["body"]["choices"][0]["message"]["content"]).apply(extract_annos_from_xml)
+    df = df.dropna(subset=["preds"])
+    file_id_and_range = df.custom_id.str.split(r"\.annos.json\.")
+    df["file_id"] = file_id_and_range.apply(lambda x: x[0] + ".annos.json")
+    df["parent_start"] = file_id_and_range.apply(lambda x: int(x[1].split("-")[0]))
+    df["parent_end"] = file_id_and_range.apply(lambda x: int(x[1].split("-")[1]))
+    logger.info(f"Split Custom IDs into file ID and range")
+
+    # Hunt for the annotations in the actual text so we can get their start/end indices
+    annos = []
+    for i, row in tqdm(df.iterrows(), total=len(df)):
+        file_id = row.file_id
+
+        # For this item, find the associated parent annotation
+        parent_annos = pd.DataFrame.from_records(mmds[file_id])
+        parent = parent_annos[(parent_annos['start'] == row.parent_start) & (parent_annos['end'] == row.parent_end)].iloc[0]
+
+        # Now re-add the parent start so we get the real starting/ending indices
+        names_and_refs = row.preds
+        for pred in names_and_refs:
+            pred['start'] += parent.start
+            pred['end'] += parent.start
+            pred['file_id'] = file_id
+            pred['parent_start'] = parent.start
+            pred['parent_end'] = parent.end
+            pred['parent_text'] = parent.text
+            pred['parent_tag'] = parent.tag
+            annos.append(pred)
+
+    anno_df = pd.DataFrame.from_records(annos)
+
+    for file_id in anno_df.file_id.unique():
+        file_annos = anno_df[anno_df["file_id"] == file_id]
+        logger.info(f"For {file_id} we have {len(file_annos)} annotations")
+
+        outfile = Path(output_dir, Path(file_id.replace('.annos.json', '')).with_suffix(".annos.json").name)
+        file_annos.to_json(outfile) # type:ignore
+        logger.info(f"Saved {len(file_annos)} annotations to {outfile}")
 
 def postprocess(path: Path | str, mmds: dict[str, tuple[str, list[int]]], output_dir: Path | str):
     def tryloads(j):
@@ -665,6 +732,7 @@ if __name__ == "__main__":
     postprocess_input.add_argument("--file", help="Path to input file (if only processing one)")
     postprocess_input.add_argument("--filelist", help="Path to a file containing a list of input files")
 
+    postprocess_parser.add_argument("--type", choices=['nameref', 'base'], type=str, help='Whether to postprocess base predictions of name/ref predictions.')
     postprocess_parser.add_argument("--predictions", required=True, help="Path to predictions file")
     postprocess_parser.add_argument("--output", required=True, help="Path to output directory")
     # fmt:on
@@ -714,13 +782,18 @@ if __name__ == "__main__":
         case "postprocess":
             # Get the input file name(s) and tokenize them
             files = [l.strip() for l in open(args.filelist, "r").readlines()] if args.filelist else [args.file]
-            # mmds = tokenize_files(files)
-            mmds = {}
-            for fname in files:
-                with open(fname, "r") as f:
-                    mmd = f.read()
-                    mmds[fname] = (mmd, None)
+            if args.type == 'base':
+                mmds = {}
+                for fname in files:
+                    with open(fname, "r") as f:
+                        mmd = f.read()
+                        mmds[fname] = (mmd, None)
 
-            # Ensure the output directory exists
-            Path(args.output).parent.mkdir(exist_ok=True, parents=True)
-            postprocess(args.predictions, mmds, args.output)
+                # Ensure the output directory exists
+                Path(args.output).parent.mkdir(exist_ok=True, parents=True)
+                postprocess(args.predictions, mmds, args.output)
+            else:
+                annos = load_anno_files(files)
+                # Ensure the output directory exists
+                Path(args.output).parent.mkdir(exist_ok=True, parents=True)
+                postprocess_names(args.predictions, annos, args.output)
