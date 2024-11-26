@@ -11,6 +11,7 @@ wheels/
 /runs/
 /wandb/
 /data/
+/link-annotations-data/
 /.old/
 /checkpoint-final/
 /debug/
@@ -20,4 +21,8 @@ wheels/
 *.safetensors
 mmd_data/
 crf_data/
-
+gpt*/
+old/
+outputs/
+annos.list
+mmds.list
