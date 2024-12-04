@@ -164,16 +164,10 @@ class AutoLinker:
 
         if "reference" in tags:
             assert "name" in tags, "Can't link references to names without any names"
-            logging.warning("Only linking a random pool of 1000 references!! Gotta change the hardcode")
-            logging.warning("Don't forget to change the number of returned candidates too!!!")
             with Pool(processes=num_procs) as pool:
-                references = random.sample(self.references, 1000)
                 self.references = pool.starmap(
-                    self.link_ref_to_name, tqdm(zip(references, repeat(self.names)), total=len(references))
+                    self.link_ref_to_name, tqdm(zip(self.references, repeat(self.names)), total=len(self.references))
                 )
-                # self.references = pool.starmap(
-                #     self.link_ref_to_name, tqdm(zip(self.references, repeat(self.names)), total=len(self.references))
-                # )
         return self.definitions + self.theorems + self.examples + self.proofs + self.names + self.references
 
     @staticmethod
@@ -198,9 +192,6 @@ class AutoLinker:
     def link_ref_to_name(ref: Annotation, targets: list[Annotation]):
         if ref.tag != "reference":
             raise Exception(f"Cannot call 'link_ref_to_name' on annotation type {ref.tag}")
-
-        # if len(ref.text) <= 4:
-        #     return ref
 
         # First try to match the whole name to a target. Link to every exact match we can find.
         matches = filter(
@@ -234,8 +225,7 @@ class AutoLinker:
             matches = sorted(matches, key=sortkey)
 
             # if we find a match, link to the best choices up to 5 total
-            # remaining = 5 - len(ref.links)
-            for match in matches:
+            for match in matches[:5]:
                 ref = toggle_link(ref, match, force_enable=True)
         return ref
 
