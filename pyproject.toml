@@ -27,6 +27,7 @@ dependencies = [
     "transformers==4.41.0",
     "openai>=1.53.0",
     "tiktoken>=0.8.0",
+    "pandarallel>=1.6.5",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"

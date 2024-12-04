@@ -98,9 +98,11 @@ import pandas as pd
 import tiktoken
 from more_itertools import chunked
 from openai.types import Batch
-from openai.types.chat import (ChatCompletionMessageParam,
-                               ChatCompletionSystemMessageParam,
-                               ChatCompletionUserMessageParam)
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
 from tqdm import tqdm
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -115,9 +117,19 @@ INST = """In the following LaTeX document, extract entities of the following typ
 3. proof
 4. example
 Your output should be a single JSON with 4 keys corresponding to the 4 entity types above. Spans may be part of multiple entities. Do not hallucinate text.
+
+{}
 """
 
-INST_NAME = "In the following LaTeX snippet, extract every newly defined named entity (name) and reference to previously defined named entity (reference). Your output should be in XML."
+INST_NAME = """In the following LaTeX snippet, extract every newly defined named entity (name) and reference to previously defined named entity (reference). Your output should be in XML.
+
+{}
+"""
+
+INST_PAGE_FILTER = """Determine whether the following page from a textbook contains mathematical content ('math'), metadata about a textbook ('metadata') such as a table of contents or index, or is missing ('missing').
+
+# Page: {}
+"""
 
 # This is a response schema which forces a particular JSON output:
 # https://platform.openai.com/docs/guides/structured-outputs#how-to-use
@@ -166,6 +178,7 @@ def merge_neighbors(df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(new)
 
+
 def load_anno_files(files: list[str]) -> dict[str, list]:
     """Tokenizes files and returns dictionary of name --> examples
 
@@ -182,10 +195,11 @@ def load_anno_files(files: list[str]) -> dict[str, list]:
     mmds = {}
     for fname in files:
         df = pd.read_json(fname)
-        mmds[fname] = df[df.tag.isin({'theorem', 'definition'})].to_dict(orient='records')
+        mmds[Path(fname).name] = df[df.tag.isin({"theorem", "definition"})].to_dict(orient="records")
     return mmds
 
-def tokenize_files(files: list[str]) -> dict[str, tuple[str, list[int]]]:
+
+def load_and_tokenize_mmd_files(files: list[str]) -> dict[str, tuple[str, list[int]]]:
     """Tokenizes files and returns dictionary of name --> (contents, tokens)
 
     Parameters
@@ -202,8 +216,11 @@ def tokenize_files(files: list[str]) -> dict[str, tuple[str, list[int]]]:
     for fname in files:
         with open(fname, "r") as f:
             mmd = f.read()
+            # Remove the missing page indicators
+            pattern = r"^\[MISSING_PAGE_.*$"
+            mmd = re.sub(pattern, "\n\n", mmd, flags=re.MULTILINE)
             tokens = tokenizer.encode(mmd)
-            mmds[fname] = (mmd, tokens)
+            mmds[Path(fname).name] = (mmd, tokens)
     return mmds
 
 
@@ -227,55 +244,9 @@ def format_input(input_text: str, instruction: str, system: str) -> list[ChatCom
 
     return [
         ChatCompletionSystemMessageParam(role="system", content=system),
-        ChatCompletionUserMessageParam(role="user", content=instruction + "\n\n" + input_text),
+        ChatCompletionUserMessageParam(role="user", content=instruction.format(input_text)),
     ]
 
-def format_add_names_request(examples: list[dict], model: str, max_len: int, file_id: str) -> list[dict[str, Any]]:
-    """Create batch request which processes `tokens` in chunks of `max_len`
-
-    Parameters
-    ----------
-    tokens : list
-        List of tokens to process
-    model : str
-        Model ID to use (e.g., a fine-tuned model or `gpt-4o-mini`)
-    max_len : int
-        Max input tokens to process per request
-    file_id : str
-        Custom ID prefix for request. Each request will have an id in the format
-        `{file_id}.{start}-{end}` where start/end are the indices of a chunk to process.
-
-    Examples
-    --------
-    >>> example = "Definition 4.1.2: An abelian group is a group with a commutative binary operation."
-    >>> requests = format_add_names_request([example], 'gpt-4o-mini', 1024, "math_doc_example")
-    """
-
-    requests = []
-    added = {}
-    for example in examples:
-        text = example['text']
-        tag = example['tag']
-        start = example['start']
-        end = example['end']
-        if (start,end) in added:
-            continue
-        added[(start,end)] = text, tag
-        if len(text) < 40:
-            continue
-        trunc = tokenizer.decode(tokenizer.encode(text)[:max_len])
-        messages = format_input(trunc, INST_NAME, SYST)
-        body = dict(
-            model=model,
-            messages=messages,
-        )
-        requests.append(dict(
-            custom_id=f"{file_id}.{start}-{end}",
-            method="POST",
-            url="/v1/chat/completions",
-            body=body,
-        ))
-    return requests
 
 def format_batch_request(tokens: list, model: str, max_len: int, file_id: str) -> list[dict[str, str]]:
     """Create batch request which processes `tokens` in chunks of `max_len`
@@ -320,6 +291,103 @@ def format_batch_request(tokens: list, model: str, max_len: int, file_id: str) -
     return requests
 
 
+def format_add_names_request(examples: list[dict], model: str, max_len: int, file_id: str) -> list[dict[str, Any]]:
+    """Create batch request which processes `tokens` in chunks of `max_len`
+
+    Parameters
+    ----------
+    tokens : list
+        List of tokens to process
+    model : str
+        Model ID to use (e.g., a fine-tuned model or `gpt-4o-mini`)
+    max_len : int
+        Max input tokens to process per request
+    file_id : str
+        Custom ID prefix for request. Each request will have an id in the format
+        `{file_id}.{start}-{end}` where start/end are the indices of a chunk to process.
+
+    Examples
+    --------
+    >>> example = "Definition 4.1.2: An abelian group is a group with a commutative binary operation."
+    >>> requests = format_add_names_request([example], 'gpt-4o-mini', 1024, "math_doc_example")
+    """
+
+    requests = []
+    added = {}
+    for example in examples:
+        text = example["text"]
+        tag = example["tag"]
+        start = example["start"]
+        end = example["end"]
+        if (start, end) in added:
+            continue
+        added[(start, end)] = text, tag
+        if len(text) < 40:
+            continue
+        trunc = tokenizer.decode(tokenizer.encode(text)[:max_len])
+        messages = format_input(trunc, INST_NAME, SYST)
+        body = dict(
+            model=model,
+            messages=messages,
+        )
+        requests.append(
+            dict(
+                custom_id=f"{file_id}.{start}-{end}",
+                method="POST",
+                url="/v1/chat/completions",
+                body=body,
+            )
+        )
+    return requests
+
+
+def format_page_filter_request(
+    tokens: list, model: str, max_len: int, file_id: str, first_k_tokens: int | None = None
+) -> list[dict[str, str]]:
+    """Create batch request to filter pages which processes `tokens` in chunks of `max_len`
+
+    Parameters
+    ----------
+    tokens : list
+        List of tokens to process
+    model : str
+        Model ID to use (e.g., a fine-tuned model or `gpt-4o-mini`)
+    max_len : int
+        Max input tokens to process per request
+    file_id : str
+        Custom ID prefix for request. Each request will have an id in the format
+        `{file_id}.{start}-{end}` where start/end are the indices of a chunk to process.
+    first_k_tokens : int
+        Only process the first k tokens in the input MMD file. If None, use all.
+
+    Examples
+    --------
+    >>> tokenizer = tiktoken.encoding_for_model("gpt-4o-mini-2024-07-18")
+    >>> with open('math_doc_example.mmd', 'r') as f: text = f.read()
+    >>> tokens = tokenizer.encode(text)
+    >>> requests = format_batch_request(tokens, 'gpt-4o-mini', 1024, "math_doc_example")
+    """
+
+    requests = []
+    stop_idx = first_k_tokens or len(tokens)
+    for idx, snippet in enumerate(chunked(tokens[:stop_idx], n=max_len)):
+        snippet_text = tokenizer.decode(snippet)
+        messages = format_input(snippet_text, INST_PAGE_FILTER, SYST)
+        body = dict(
+            model=model,
+            messages=messages,
+        )
+        requests.append(
+            dict(
+                custom_id=f"{file_id}.{idx*max_len}-{(idx+1)*max_len}",
+                method="POST",
+                url="/v1/chat/completions",
+                body=body,
+            )
+        )
+    return requests
+
+
 def batch_process(mmds: dict[str, tuple[str, list[int]]], model: str, max_len: int, output_dir: Path) -> pd.DataFrame:
     """Launches a job to process `requests` via the Batch API
 
@@ -341,7 +409,7 @@ def batch_process(mmds: dict[str, tuple[str, list[int]]], model: str, max_len: i
 
     Examples
     --------
-    >>> mmds = tokenize_files(input_files)
+    >>> mmds = load_and_tokenize_mmd_files(input_files)
     >>> df = batch_process(mmds, model='gpt-4o-mini', max_len=1024, output_dir=Path('./outputs'))
     """
 
@@ -360,6 +428,7 @@ def batch_process(mmds: dict[str, tuple[str, list[int]]], model: str, max_len: i
         metadata={"description": "Running GPT classification on textbooks"},
     )
     return monitor(job_info.id, output_dir)
+
 
 def batch_process_add_names(annos: dict[str, list], model: str, max_len: int, output_dir: Path) -> pd.DataFrame:
     """Launches a job to process `requests` via the Batch API
@@ -401,7 +470,56 @@ def batch_process_add_names(annos: dict[str, list], model: str, max_len: int, ou
             completion_window="24h",
             metadata={"description": "Adding names to previously classified objects"},
         )
-    return monitor(job_info.id, output_dir) # type:ignore
+    return monitor(job_info.id, output_dir)  # type:ignore
+
+
+def batch_process_page_filter(
+    mmds: dict[str, tuple[str, list[int]]], model: str, max_len: int, output_dir: Path, first_k_tokens: int = 24_000
+) -> pd.DataFrame:
+    """Launches a job to filter out chunks of `max_len`
+
+    Parameters
+    ----------
+    mmds : dict[str, tuple[str, list[int]]]
+        Dict from name to (contents, tokens)
+    model : str
+        Model ID to use (e.g., a fine-tuned model or `gpt-4o-mini`)
+    max_len : int
+        Max input tokens per request
+    output_dir : Path
+        Path to save output directory
+    first_k_tokens : int = 24_000
+        Only process the first k tokens in the input MMD file. If None, use all.
+
+    Returns
+    -------
+    pd.DataFrame
+        Processed output (see OpenAI batch API response docs)
+
+    Examples
+    --------
+    >>> mmds = load_and_tokenize_mmd_files(input_files)
+    >>> df = batch_process_page_filter(mmds, model='gpt-4o-mini', max_len=1024, output_dir=Path('./outputs'))
+    """
+
+    requests = []
+    for name, (mmd, tokens) in mmds.items():
+        reqs = format_page_filter_request(
+            tokens=tokens, model=model, max_len=max_len, file_id=name, first_k_tokens=first_k_tokens
+        )
+        requests.extend(reqs)
+
+    with tempfile.NamedTemporaryFile("w+", suffix=".jsonl") as nt:
+        pd.DataFrame.from_records(requests).to_json(nt.name, orient="records", lines=True)
+        batch_input_file = client.files.create(file=Path(nt.name), purpose="batch")
+    job_info = client.batches.create(
+        input_file_id=batch_input_file.id,
+        endpoint="/v1/chat/completions",
+        completion_window="24h",
+        metadata={"description": "Running GPT page filtering on textbooks"},
+    )
+    return monitor(job_info.id, output_dir)
+
 
 def process_file(tokens: list, model: str, max_len: int) -> pd.DataFrame:
     """Process a single file
@@ -479,7 +597,7 @@ def process(mmds: dict[str, tuple[str, list[int]]], model: str, max_len: int, ou
 
     Examples
     --------
-    >>> mmds = tokenize_files(input_files)
+    >>> mmds = load_and_tokenize_mmd_files(input_files)
     >>> df = process(mmds, model='gpt-4o-mini', max_len=1024, output_dir=Path('./outputs'))
     """
     for name, (mmd, tokens) in mmds.items():
@@ -556,6 +674,7 @@ def monitor(job_id: str, output_dir: Path) -> pd.DataFrame:
 
     return df
 
+
 def extract_annos_from_xml(xml):
     pattern = r"<name>(?P<name>.*?)</name>|<reference>(?P<reference>.*?)</reference>"
     offset = 0
@@ -568,15 +687,16 @@ def extract_annos_from_xml(xml):
             entity = item.group("name")
             tag = "name"
             offset += (item.end() - item.start()) - len(item.group("name"))
-            tags.append(dict(start=start,end=end,tag=tag,text=entity))
+            tags.append(dict(start=start, end=end, tag=tag, text=entity))
         elif item.group("reference") is not None:
             start = item.start() - offset
             end = start + len(item.group("reference"))
             entity = item.group("reference")
             tag = "reference"
             offset += (item.end() - item.start()) - len(item.group("reference"))
-            tags.append(dict(start=start,end=end,tag=tag,text=entity))
+            tags.append(dict(start=start, end=end, tag=tag, text=entity))
     return tags
+
 
 def postprocess_names(path: Path | str, mmds: dict[str, list[dict]], output_dir: Path | str):
     # Read in the predicted annotations
@@ -584,10 +704,12 @@ def postprocess_names(path: Path | str, mmds: dict[str, list[dict]], output_dir:
     logger.info(f"Read {len(df)} predictions from {path}")
 
     # Process the request object to extract predictiosn
-    df["preds"] = df.response.apply(lambda x: x["body"]["choices"][0]["message"]["content"]).apply(extract_annos_from_xml)
+    df["preds"] = df.response.apply(lambda x: x["body"]["choices"][0]["message"]["content"]).apply(
+        extract_annos_from_xml
+    )
     df = df.dropna(subset=["preds"])
     file_id_and_range = df.custom_id.str.split(r"\.annos.json\.")
-    df["file_id"] = file_id_and_range.apply(lambda x: x[0] + ".annos.json")
+    df["file_id"] = file_id_and_range.apply(lambda x: Path(x[0]).with_suffix(".annos.json").name)
     df["parent_start"] = file_id_and_range.apply(lambda x: int(x[1].split("-")[0]))
     df["parent_end"] = file_id_and_range.apply(lambda x: int(x[1].split("-")[1]))
     logger.info(f"Split Custom IDs into file ID and range")
@@ -599,18 +721,20 @@ def postprocess_names(path: Path | str, mmds: dict[str, list[dict]], output_dir:
 
         # For this item, find the associated parent annotation
         parent_annos = pd.DataFrame.from_records(mmds[file_id])
-        parent = parent_annos[(parent_annos['start'] == row.parent_start) & (parent_annos['end'] == row.parent_end)].iloc[0]
+        parent = parent_annos[
+            (parent_annos["start"] == row.parent_start) & (parent_annos["end"] == row.parent_end)
+        ].iloc[0]
 
         # Now re-add the parent start so we get the real starting/ending indices
         names_and_refs = row.preds
         for pred in names_and_refs:
-            pred['start'] += parent.start
-            pred['end'] += parent.start
-            pred['file_id'] = file_id
-            pred['parent_start'] = parent.start
-            pred['parent_end'] = parent.end
-            pred['parent_text'] = parent.text
-            pred['parent_tag'] = parent.tag
+            pred["start"] += parent.start
+            pred["end"] += parent.start
+            pred["file_id"] = file_id
+            pred["parent_start"] = parent.start
+            pred["parent_end"] = parent.end
+            pred["parent_text"] = parent.text
+            pred["parent_tag"] = parent.tag
             annos.append(pred)
 
     anno_df = pd.DataFrame.from_records(annos)
@@ -619,9 +743,10 @@ def postprocess_names(path: Path | str, mmds: dict[str, list[dict]], output_dir:
         file_annos = anno_df[anno_df["file_id"] == file_id]
         logger.info(f"For {file_id} we have {len(file_annos)} annotations")
 
-        outfile = Path(output_dir, Path(file_id.replace('.annos.json', '')).with_suffix(".annos.json").name)
-        file_annos.to_json(outfile) # type:ignore
+        outfile = Path(output_dir, Path(file_id.replace(".annos.json", "")).with_suffix(".annos.json").name)
+        file_annos.to_json(outfile)  # type:ignore
         logger.info(f"Saved {len(file_annos)} annotations to {outfile}")
+
 
 def postprocess(path: Path | str, mmds: dict[str, tuple[str, list[int]]], output_dir: Path | str):
     def tryloads(j):
@@ -721,6 +846,17 @@ if __name__ == "__main__":
     add_names_parser.add_argument("--model", type=str, required=True, help="Model ID to use")
     add_names_parser.add_argument("--max_len", type=int, required=True, help="Max input tokens per request")
 
+    # Filter out pages which we shouldn't be annotating
+    page_filter_parser = subparsers.add_parser('page_filter')
+    page_filter_input = page_filter_parser.add_mutually_exclusive_group(required=True)
+    page_filter_input.add_argument("--file", help="Path to input .annos.json file (if only processing one)")
+    page_filter_input.add_argument("--filelist", help="Path to a file containing a list of input files")
+
+    page_filter_parser.add_argument("--output", required=True, help="Path to output directory")
+    page_filter_parser.add_argument("--model", type=str, required=True, help="Model ID to use")
+    page_filter_parser.add_argument("--max_len", type=int, required=True, help="Max input tokens per request")
+    page_filter_parser.add_argument("--first_k_tokens", type=int, required=True, help="Only process the first K tokens")
+
     # Monitor job
     monitor_parser = subparsers.add_parser('monitor')
     monitor_parser.add_argument("job_id", type=str, help="If provided, don't launch any jobs, but just monitor the provided batched job ID")
@@ -751,7 +887,7 @@ if __name__ == "__main__":
         case "process" | "batch":
             # Get the input file name(s) and tokenize them
             files = [l.strip() for l in open(args.filelist, "r").readlines()] if args.filelist else [args.file]
-            mmds = tokenize_files(files)
+            mmds = load_and_tokenize_mmd_files(files)
 
             # Get an estimate total price and confirm it's ok. This is (for my case) an
             # overestimate, but better to be safe.
@@ -772,6 +908,14 @@ if __name__ == "__main__":
                 outputs = batch_process(mmds, model=args.model, max_len=args.max_len, output_dir=args.output)
             else:  # args.command == "process":
                 outputs = process(mmds, model=args.model, max_len=args.max_len, output_dir=args.output)
+        case "page_filter":
+            # Get the input file name(s) and tokenize them
+            files = [l.strip() for l in open(args.filelist, "r").readlines()] if args.filelist else [args.file]
+            mmds = load_and_tokenize_mmd_files(files)
+            Path(args.output).parent.mkdir(exist_ok=True, parents=True)
+            outputs = batch_process_page_filter(
+                mmds, model=args.model, max_len=args.max_len, output_dir=args.output, first_k_tokens=args.first_k_tokens
+            )
         case "add_names":
             files = [l.strip() for l in open(args.filelist, "r").readlines()] if args.filelist else [args.file]
             annos = load_anno_files(files)
@@ -782,12 +926,12 @@ if __name__ == "__main__":
         case "postprocess":
             # Get the input file name(s) and tokenize them
             files = [l.strip() for l in open(args.filelist, "r").readlines()] if args.filelist else [args.file]
-            if args.type == 'base':
+            if args.type == "base":
                 mmds = {}
                 for fname in files:
                     with open(fname, "r") as f:
                         mmd = f.read()
-                        mmds[fname] = (mmd, None)
+                        mmds[Path(fname).name] = (mmd, None)
 
                 # Ensure the output directory exists
                 Path(args.output).parent.mkdir(exist_ok=True, parents=True)
