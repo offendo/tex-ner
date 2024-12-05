@@ -6,6 +6,7 @@ from numpy import who
 from tqdm import tqdm
 from multiprocessing import Pool
 from itertools import repeat
+from nltk import word_tokenize
 import random
 import logging
 import copy
@@ -13,6 +14,7 @@ import uuid
 import json
 import pandas as pd
 import click
+import re
 
 logging.basicConfig(level=logging.INFO)
 
@@ -89,6 +91,13 @@ class Annotation:
         res = self.__dict__
         res["links"] = links
         return res
+
+
+def tokenize(text):
+    # Replace math stuff
+    text = re.sub(r"\(", "", text)
+    text = re.sub(r"\)", "", text)
+    return word_tokenize(text)
 
 
 def toggle_link(src: Annotation, tgt: Annotation, force_enable: bool = False):
@@ -193,34 +202,34 @@ class AutoLinker:
         if ref.tag != "reference":
             raise Exception(f"Cannot call 'link_ref_to_name' on annotation type {ref.tag}")
 
+        # Sort the matches by number of shared words between the reference and the name's target entity
+        def sortkey(name):
+            shared_words = 0
+            tgts = set(name.links[0].text.split())
+            for token in tokenize(ref.text):
+                if token in tgts:
+                    shared_words += 1
+            if name.file_id == ref.file_id:
+                shared_words += (ref.start - name.start) / 100_000
+
+            return -shared_words
+
         # First try to match the whole name to a target. Link to every exact match we can find.
         matches = filter(
             lambda name: (name.end < ref.start or name.file_id != ref.file_id) and match_name(name.text, ref.text),
             targets,
         )
-        for m in matches:
+        for m in sorted(matches, key=sortkey):
             ref = toggle_link(ref, m, force_enable=True)
 
         # For each token in the reference, check to see if there's a matching name
-        for token in ref.text.split(" "):
+        for token in tokenize(ref.text):
             matches = filter(
                 lambda name: (name.end < ref.start or name.file_id != ref.file_id)
                 and match_name(name.text, token)
                 and len(name.links) > 0,
                 targets,
             )
-
-            # Sort the matches by number of shared words between the reference and the name's target entity
-            def sortkey(name):
-                shared_words = 0
-                tgts = set(name.links[0].text.split())
-                for token in ref.text.split(" "):
-                    if token in tgts:
-                        shared_words += 1
-                if name.file_id == ref.file_id:
-                    shared_words += (ref.start - name.start) / 100_000
-
-                return -shared_words
 
             matches = sorted(matches, key=sortkey)
 
